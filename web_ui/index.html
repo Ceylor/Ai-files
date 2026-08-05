@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI AutoClip Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: #0a0a0a; color: #e5e5e5; font-family: system-ui, sans-serif; }
+        .glass { background: rgba(20, 20, 25, 0.8); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        .drop-zone { border: 2px dashed rgba(255,255,255,0.2); transition: all 0.3s; }
+        .drop-zone:hover { border-color: #06b6d4; background: rgba(6,182,212,0.05); }
+        #logConsole::-webkit-scrollbar { width: 8px; }
+        #logConsole::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        button, select, input, textarea { cursor: pointer; }
+    </style>
+</head>
+<body class="min-h-screen p-6">
+
+<div class="max-w-7xl mx-auto grid md:grid-cols-2 gap-6">
+    
+    <!-- ЛЕВАЯ КОЛОНКА -->
+    <div class="space-y-6">
+        
+        <!-- 1. Категория -->
+        <div class="glass rounded-xl p-6">
+            <h2 class="text-xl font-bold mb-4">⚙️ 1. Выбери категорию</h2>
+            <select id="categorySelect" class="w-full p-3 rounded-lg bg-gray-800 border border-gray-700 text-white">
+                <option value="vlog">🎥 Влог / Лайфстайл</option>
+                <option value="movies">🎬 Фильмы / Сериалы</option>
+                <option value="cartoons">🧸 Мультфильмы</option>
+                <option value="podcast">🎙️ Подкасты</option>
+                <option value="gaming"> Игры</option>
+            </select>
+        </div>
+
+        <!-- 2. Обучение -->
+        <div class="glass rounded-xl p-6">
+            <h2 class="text-xl font-bold mb-2 text-cyan-400"> 2. Обучение AI стилю</h2>
+            <p class="text-sm text-gray-400 mb-4">Загрузи файлы или ссылки</p>
+            
+            <div onclick="document.getElementById('refFiles').click()" class="drop-zone rounded-lg p-8 text-center mb-4">
+                <input type="file" id="refFiles" multiple accept="video/*" class="hidden" onchange="handleFiles(this.files, 'ref')">
+                <div class="text-3xl mb-2">📂</div>
+                <p>Перетащи видео или <span class="text-cyan-400 underline">выбери</span></p>
+                <p id="refStatus" class="text-xs text-gray-500 mt-2">Ожидание...</p>
+            </div>
+
+            <textarea id="linkInput" rows="3" class="w-full p-3 rounded-lg bg-gray-800 border border-gray-700 text-white text-sm mb-4" placeholder="Ссылки (каждая с новой строки)..."></textarea>
+            
+            <div class="grid grid-cols-2 gap-3">
+                <button onclick="downloadLinks()" class="py-2 bg-purple-600/20 border border-purple-500/50 text-purple-400 rounded-lg hover:bg-purple-600/30">📥 Скачать по ссылкам</button>
+                <button onclick="analyzeStyle()" class="py-2 bg-cyan-600/20 border border-cyan-500/50 text-cyan-400 rounded-lg hover:bg-cyan-600/30">🧠 Анализировать</button>
+            </div>
+
+            <div class="mt-4 flex items-center gap-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                <input type="checkbox" id="autoCleanup" checked class="w-4 h-4">
+                <label for="autoCleanup" class="text-sm text-yellow-200">🗑️ Удалить после анализа</label>
+            </div>
+        </div>
+
+        <!-- 3. Монтаж -->
+        <div class="glass rounded-xl p-6">
+            <h2 class="text-xl font-bold mb-2 text-green-400">✂️ 3. Создание клипов</h2>
+            <p class="text-sm text-gray-400 mb-4">Загрузи свои исходники</p>
+            
+            <div onclick="document.getElementById('inputFiles').click()" class="drop-zone rounded-lg p-8 text-center mb-4">
+                <input type="file" id="inputFiles" multiple accept="video/*" class="hidden" onchange="handleFiles(this.files, 'input')">
+                <div class="text-3xl mb-2">🎞️</div>
+                <p>Перетащи свои видео</p>
+                <p id="inputStatus" class="text-xs text-gray-500 mt-2">Ожидание...</p>
+            </div>
+
+            <button id="btnStart" onclick="startMontage()" class="w-full py-3 bg-gradient-to-r from-cyan-400 to-purple-600 text-black font-bold rounded-lg hover:opacity-90 disabled:opacity-50" disabled>
+                🚀 СМОНТИРОВАТЬ
+            </button>
+        </div>
+    </div>
+
+    <!-- ПРАВАЯ КОЛОНКА: ЛОГИ -->
+    <div class="glass rounded-xl p-4 h-[800px] flex flex-col">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+            <span class="text-cyan-400 font-bold">📡 LIVE LOGS</span>
+            <button onclick="clearLogs()" class="text-xs text-gray-500 hover:text-white">Очистить</button>
+        </div>
+        <div id="logConsole" class="flex-grow overflow-y-auto text-sm space-y-1 text-gray-300 font-mono">
+            <div class="text-green-400">[SYSTEM] Готов к работе...</div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+// Инициализация при загрузке
+window.onload = function() {
+    console.log('✅ Страница загружена');
+    addLog('[SYSTEM] Интерфейс активен', 'text-green-400');
+    connectWebSocket();
+};
+
+// WebSocket подключение
+let ws;
+function connectWebSocket() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${protocol}//${window.location.host}/ws/logs`);
+    
+    ws.onopen = function() {
+        console.log('✅ WebSocket подключен');
+        addLog('[SYSTEM] Соединение с сервером установлено', 'text-green-400');
+    };
+    
+    ws.onmessage = function(event) {
+        let className = 'text-gray-300';
+        if (event.data.includes('✅')) className = 'text-green-400';
+        else if (event.data.includes('❌')) className = 'text-red-400';
+        else if (event.data.includes('️')) className = 'text-yellow-400';
+        else if (event.data.includes('')) className = 'text-cyan-400 font-bold';
+        else if (event.data.includes('🎬')) className = 'text-purple-400';
+        addLog(event.data, className);
+    };
+    
+    ws.onclose = function() {
+        console.log('⚠️ WebSocket отключен');
+        setTimeout(connectWebSocket, 2000);
+    };
+    
+    ws.onerror = function(error) {
+        console.error('WebSocket error:', error);
+    };
+}
+
+function addLog(message, className) {
+    const logConsole = document.getElementById('logConsole');
+    const div = document.createElement('div');
+    div.className = className || 'text-gray-300';
+    div.textContent = message;
+    logConsole.appendChild(div);
+    logConsole.scrollTop = logConsole.scrollHeight;
+}
+
+function clearLogs() {
+    document.getElementById('logConsole').innerHTML = '';
+    console.log('Логи очищены');
+}
+
+// Загрузка файлов
+async function handleFiles(files, type) {
+    if (!files || files.length === 0) return;
+    
+    const category = document.getElementById('categorySelect').value;
+    const statusEl = type === 'ref' ? document.getElementById('refStatus') : document.getElementById('inputStatus');
+    const endpoint = type === 'ref' ? '/api/upload_references' : '/api/upload_input';
+    
+    statusEl.textContent = `Загрузка ${files.length} файлов...`;
+    statusEl.className = 'text-xs text-yellow-400 mt-2';
+    
+    const formData = new FormData();
+    formData.append('category', category);
+    for (let file of files) {
+        formData.append('files', file);
+    }
+    
+    try {
+        const response = await fetch(endpoint, { method: 'POST', body: formData });
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            statusEl.textContent = `✅ Загружено: ${data.count} файлов`;
+            statusEl.className = 'text-xs text-green-400 mt-2';
+            if (type === 'input') {
+                document.getElementById('btnStart').disabled = false;
+            }
+        }
+    } catch (error) {
+        console.error('Upload error:', error);
+        statusEl.textContent = '❌ Ошибка загрузки';
+        statusEl.className = 'text-xs text-red-400 mt-2';
+    }
+}
+
+// Скачать по ссылкам
+async function downloadLinks() {
+    console.log('Клик: Скачать по ссылкам');
+    const category = document.getElementById('categorySelect').value;
+    const links = document.getElementById('linkInput').value;
+    const statusEl = document.getElementById('refStatus');
+    
+    if (!links.trim()) {
+        alert('Вставь хотя бы одну ссылку!');
+        return;
+    }
+    
+    statusEl.textContent = '📥 Скачивание...';
+    statusEl.className = 'text-xs text-yellow-400 mt-2';
+    
+    const formData = new FormData();
+    formData.append('category', category);
+    formData.append('links', links);
+    
+    try {
+        await fetch('/api/train_links', { method: 'POST', body: formData });
+    } catch (error) {
+        console.error('Download error:', error);
+    }
+}
+
+// Анализировать стиль
+async function analyzeStyle() {
+    console.log('Клик: Анализировать стиль');
+    const category = document.getElementById('categorySelect').value;
+    const autoCleanup = document.getElementById('autoCleanup').checked;
+    
+    const formData = new FormData();
+    formData.append('category', category);
+    formData.append('auto_cleanup', autoCleanup.toString());
+    
+    try {
+        await fetch('/api/analyze_style', { method: 'POST', body: formData });
+    } catch (error) {
+        console.error('Analyze error:', error);
+    }
+}
+
+// Начать монтаж
+async function startMontage() {
+    console.log('Клик: Смонтировать');
+    const category = document.getElementById('categorySelect').value;
+    
+    const formData = new FormData();
+    formData.append('category', category);
+    
+    try {
+        await fetch('/api/start_pipeline', { method: 'POST', body: formData });
+    } catch (error) {
+        console.error('Montage error:', error);
+    }
+}
+</script>
+
+</body>
+</html>

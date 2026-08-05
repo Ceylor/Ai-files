@@ -1,0 +1,384 @@
+"""
+Модуль 5: Интеллектуальный монтаж с синхронизацией под бит
+Использует beat_times_sec и drop_times_sec из аудио-анализа
+"""
+import asyncio
+import shutil
+from pathlib import Path
+from typing import Dict, List, Optional
+import cv2
+from src.utils.logger import ws_manager
+
+class SmartEditor:
+    """Интеллектуальный редактор с синхронизацией под бит"""
+    
+    def __init__(self, config: Dict, temp_dir: Path):
+        self.config = config
+        self.temp_dir = temp_dir
+        self.target_resolution = config["general"].get("resolution", [1080, 1920])
+        self.editing_config = config.get("editing", {})
+        # Максимальная длительность клипа (из конфига или 55 сек)
+        self.max_clip_duration = self.editing_config.get("max_clip_duration", 55)
+    
+async def edit_clip_with_beat_sync(
+        self,
+        video_path: Path,
+        music_metadata: Dict,
+        output_path: Path,
+        style_profile: Optional[Dict] = None,
+        max_duration: Optional[float] = None
+    ) -> Path:
+        """
+        Монтирует клип, синхронизируя склейки с битами музыки
+        
+        Args:
+            video_path: Исходное видео
+            music_metadata: Метаданные трека (с beat_times_sec, drop_times_sec)
+            output_path: Путь для сохранения
+            style_profile: Профиль стиля категории (опционально)
+            max_duration: Максимальная длительность клипа в секундах (None = из конфига)
+            
+        Returns:
+            Путь к готовому клипу
+        """
+        await ws_manager.broadcast("🎬 Монтаж с синхронизацией под бит...")
+        
+        # Определяем максимальную длительность
+        if max_duration is None:
+            max_duration = self.max_clip_duration
+        await ws_manager.broadcast(f"   ⏱️  Максимальная длительность клипа: {max_duration}с")
+        
+        # Получаем сетку битов из метаданных музыки
+        beat_times = music_metadata.get("beat_times_sec", [])
+        drop_times = music_metadata.get("drop_times_sec", [])
+        bpm = music_metadata.get("bpm", 120)
+        
+        # Получаем длительность исходного видео
+        duration = await self._get_video_duration(video_path)
+        
+        # КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: обрезаем видео до max_duration ПЕРЕД монтажом
+        target_duration = min(duration, max_duration)
+        await ws_manager.broadcast(f"   📏 Длительность видео: {duration:.1f}с → обрезаем до {target_duration:.1f}с")
+        
+        if duration > target_duration:
+            # Сначала обрезаем видео до нужной длительности
+            trimmed_path = self.temp_dir / "trimmed_source.mp4"
+            cmd = [
+                "ffmpeg", "-y",
+                "-ss", "0.0",
+                "-i", str(video_path),
+                "-t", str(target_duration),
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k",
+                str(trimmed_path)
+            ]
+            process = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            await process.communicate()
+            if trimmed_path.exists():
+                video_path = trimmed_path
+                duration = target_duration
+        
+        # Генерируем beat_times RELATIVNO длительности видео, а не музыки
+        # Это важно: биты должны соответствовать видео, а не треку
+        if beat_times:
+            # Масштабируем биты под длительность видео
+            music_duration = beat_times[-1] if beat_times else 30  # Предполагаем 30s музыки
+            scale_factor = duration / music_duration if music_duration > 0 else 1.0
+            beat_times = [t * scale_factor for t in beat_times if t * scale_factor < duration]
+            drop_times = [t * scale_factor for t in drop_times if t * scale_factor < duration]
+            await ws_manager.broadcast(f"   🎵 BPM: {bpm}, Битов в видео: {len(beat_times)}, Дропов: {len(drop_times)}")
+        else:
+            await ws_manager.broadcast("  ⚠️  Сетка битов пуста, использую стандартную нарезку")
+            return await self._standard_cut(video_path, output_path, max_duration=target_duration)
+        
+        # Определяем правило монтажа из профиля
+        editing_rule = "balanced"
+        if style_profile:
+            editing_rule = style_profile.get("editing_rule", "balanced")
+        
+        await ws_manager.broadcast(f"    Правило монтажа: {editing_rule}")
+        
+        # Формируем список точек склейки
+        cut_points = self._calculate_cut_points(beat_times, drop_times, duration, editing_rule)
+        
+        await ws_manager.broadcast(f"   ️  Точек склейки: {len(cut_points)}")
+        
+        # Нарезаем видео по точкам склейки через FFmpeg (быстро и качественно)
+        await self._cut_video_by_points(video_path, cut_points, output_path)
+        
+        # Применяем auto-reframe 9:16 если нужно
+        if self.editing_config.get("auto_reframe", {}).get("enabled", False):
+            reframed_path = output_path.with_suffix(".reframed.mp4")
+            await self.auto_reframe_916(output_path, reframed_path)
+            output_path.unlink()  # Удаляем промежуточный файл
+            reframed_path.rename(output_path)
+        
+        await ws_manager.broadcast("  ✅ Монтаж завершен")
+        return output_path
+    def _calculate_cut_points(
+        self, 
+        beats: List[float], 
+        drops: List[float], 
+        duration: float,
+        editing_rule: str
+    ) -> List[Dict]:
+        """
+        Рассчитывает точки склейки на основе битов и правила монтажа
+        
+        Returns:
+            Список точек склейки с типом эффекта
+        """
+        cut_points = []
+        
+        if editing_rule == "dynamic_beat_sync":
+            # Динамичный монтаж: режем на каждом бите, на дропах — зум
+            for i, beat in enumerate(beats):
+                is_drop = any(abs(beat - drop) < 0.3 for drop in drops)
+                cut_points.append({
+                    "time": beat,
+                    "effect": "zoom" if is_drop else "cut",
+                    "intensity": 1.3 if is_drop else 1.0
+                })
+        
+        elif editing_rule == "narrative_flow":
+            # Плавный монтаж: режем реже, только на сильных битах (каждый 2-й или 4-й)
+            step = max(1, len(beats) // 10)  # ~10 склеек на клип
+            for i in range(0, len(beats), step):
+                beat = beats[i]
+                is_drop = any(abs(beat - drop) < 0.5 for drop in drops)
+                cut_points.append({
+                    "time": beat,
+                    "effect": "fade" if is_drop else "cut",
+                    "intensity": 1.15 if is_drop else 1.0
+                })
+        
+        else:
+            # Сбалансированный: каждый 2-й бит
+            for i in range(0, len(beats), 2):
+                beat = beats[i]
+                is_drop = any(abs(beat - drop) < 0.4 for drop in drops)
+                cut_points.append({
+                    "time": beat,
+                    "effect": "zoom" if is_drop else "cut",
+                    "intensity": 1.2 if is_drop else 1.0
+                })
+        
+        # Добавляем начало и конец
+        if cut_points and cut_points[0]["time"] > 0.5:
+            cut_points.insert(0, {"time": 0.0, "effect": "cut", "intensity": 1.0})
+        if cut_points and cut_points[-1]["time"] < duration - 0.5:
+            cut_points.append({"time": duration, "effect": "cut", "intensity": 1.0})
+        
+        return cut_points
+    
+    async def _cut_video_by_points(self, video_path: Path, cut_points: List[Dict], output_path: Path):
+        """Нарезает видео по точкам склейки через FFmpeg с применением эффектов"""
+        if len(cut_points) < 2:
+            # Если точек мало, просто копируем видео
+            shutil.copy(video_path, output_path)
+            return
+        
+        # Создаем файл со списком сегментов для FFmpeg concat
+        segments_file = self.temp_dir / "segments.txt"
+        segment_files = []
+        
+        for i in range(len(cut_points) - 1):
+            start = cut_points[i]["time"]
+            end = cut_points[i + 1]["time"]
+            duration = end - start
+            
+            if duration < 0.5:  # Пропускаем слишком короткие сегменты
+                continue
+            
+            segment_file = self.temp_dir / f"segment_{i:03d}.mp4"
+            effect = cut_points[i].get("effect", "cut")
+            intensity = cut_points[i].get("intensity", 1.0)
+            
+            # Формируем фильтры для эффектов
+            vf_parts = []
+            
+            if effect == "zoom" and intensity > 1.0:
+                # Zoom-эффект: масштабируем и кропаем центр
+                vf_parts.append(
+                    f"scale=iw*{intensity}:ih*{intensity}:flags=lanczos,"
+                    f"crop=iw/{intensity}:ih/{intensity}"
+                )
+            elif effect == "fade":
+                # Fade-эффект: плавное появление из чёрного
+                vf_parts.append("fade=t=in:st=0:d=0.3,fade=t=out:st={st}:d=0.3".format(
+                    st=max(0, duration - 0.3)
+                ))
+            
+            # Собираем команду FFmpeg
+            cmd = [
+                "ffmpeg", "-y",
+                "-ss", str(start),
+                "-i", str(video_path),
+                "-t", str(duration),
+            ]
+            
+            if vf_parts:
+                cmd += ["-vf", ",".join(vf_parts)]
+            
+            # Всегда ре-энкодим, чтобы фильтры применились
+            cmd += [
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k",
+                str(segment_file)
+            ]
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            await process.communicate()
+            
+            if segment_file.exists() and segment_file.stat().st_size > 0:
+                segment_files.append(segment_file)
+        
+        # Склеиваем сегменты
+        with open(segments_file, "w") as f:
+            for sf in segment_files:
+                f.write(f"file '{sf}'\n")
+        
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(segments_file),
+            "-c", "copy",
+            str(output_path)
+        ]
+        
+        process = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        await process.communicate()
+        
+        # Очищаем временные файлы
+        for sf in segment_files:
+            if sf.exists():
+                sf.unlink()
+        if segments_file.exists():
+            segments_file.unlink()
+    
+    async def _standard_cut(self, video_path: Path, output_path: Path,
+                             max_duration: Optional[float] = None) -> Path:
+        """Стандартная нарезка без синхронизации (fallback).
+        Если задано max_duration — обрезает видео до указанной длительности,
+        начиная с самого начала (timestamp 0.0)."""
+        if max_duration is not None:
+            duration = await self._get_video_duration(video_path)
+            if duration > max_duration:
+                await ws_manager.broadcast(
+                    f"   ✂️  Обрезка с 0.0с до {max_duration}с (было {duration:.1f}с)"
+                )
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-ss", "0.0",
+                    "-i", str(video_path),
+                    "-t", str(max_duration),
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                    "-c:a", "aac", "-b:a", "128k",
+                    str(output_path)
+                ]
+                process = await asyncio.create_subprocess_exec(
+                    *cmd, stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await process.communicate()
+                if output_path.exists() and output_path.stat().st_size > 0:
+                    return output_path
+                # Если не вышло — копируем целиком
+        shutil.copy(video_path, output_path)
+        return output_path
+    
+    async def _get_video_duration(self, video_path: Path) -> float:
+        """Получает длительность видео через ffprobe"""
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(video_path)
+        ]
+        process = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await process.communicate()
+        if process.returncode == 0:
+            return float(stdout.decode().strip())
+        return 0.0
+    
+    async def auto_reframe_916(self, video_path: Path, output_path: Path) -> Path:
+        """
+        Auto-Reframe 9:16 с трекингом лица через MediaPipe
+        (упрощенная версия для экономии ресурсов)
+        """
+        await ws_manager.broadcast(" Auto-Reframe 9:16...")
+        
+        # Используем FFmpeg для reframe (с сохранением аудио)
+        # Это надёжнее, чем OpenCV который теряет аудио
+        
+        cap = cv2.VideoCapture(str(video_path))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap.release()
+        
+        target_width, target_height = self.target_resolution
+        target_ratio = target_width / target_height
+        
+        # Вычисляем размер кропа
+        if width / height > target_ratio:
+            crop_width = int(height * target_ratio)
+            crop_height = height
+        else:
+            crop_width = width
+            crop_height = int(width / target_ratio)
+        
+        left = (width - crop_width) // 2
+        top = (height - crop_height) // 2
+        
+        # FFmpeg: кроп + ресайз + аудио
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(video_path),
+            "-vf", f"crop={crop_width}:{crop_height}:{left}:{top},scale={target_width}:{target_height}:flags=lanczos",
+            "-c:a", "aac", "-b:a", "128k",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            str(output_path)
+        ]
+        
+        process = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        await process.communicate()
+        
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            # Fallback на OpenCV если FFmpeg не сработал
+            await ws_manager.broadcast("  ⚠️  FFmpeg reframe не сработал, пробую OpenCV...")
+            
+            cap = cv2.VideoCapture(str(video_path))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            writer = cv2.VideoWriter(
+                str(output_path),
+                fourcc,
+                fps,
+                (target_width, target_height)
+            )
+            
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                cropped = frame[top:top+crop_height, left:left+crop_width]
+                resized = cv2.resize(cropped, (target_width, target_height))
+                writer.write(resized)
+            
+            cap.release()
+            writer.release()
+        
+        await ws_manager.broadcast("  ✅ Auto-Reframe завершен")
+        return output_path

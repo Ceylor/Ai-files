@@ -1,0 +1,123 @@
+/* Дополнительные стили для AI AutoClip Pro Dashboard */
+
+/* Анимация пульсации для индикатора статуса */
+@keyframes pulse-glow {
+    0%, 100% {
+        opacity: 1;
+        box-shadow: 0 0 10px rgba(34, 197, 94, 0.5);
+    }
+    50% {
+        opacity: 0.7;
+        box-shadow: 0 0 20px rgba(34, 197, 94, 0.8);
+    }
+}
+
+.status-indicator {
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Кастомный скроллбар для консоли логов */
+#logConsole::-webkit-scrollbar {
+    width: 8px;
+}
+
+#logConsole::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+}
+
+#logConsole::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+}
+
+#logConsole::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Анимация появления для новых логов */
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.log-entry {
+    animation: slideIn 0.3s ease-out;
+}
+
+/* Стили для drag & drop зоны */
+.drop-zone {
+    transition: all 0.3s ease;
+}
+
+.drop-zone.dragover {
+    transform: scale(1.02);
+    box-shadow: 0 0 30px rgba(0, 240, 255, 0.3);
+}
+
+/* Градиентный текст для заголовков */
+.gradient-text {
+    background: linear-gradient(135deg, #00f0ff 0%, #7000ff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Эффект свечения для кнопок */
+.glow-button {
+    position: relative;
+    overflow: hidden;
+}
+
+.glow-button::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.2),
+        transparent
+    );
+    transition: left 0.5s;
+}
+
+.glow-button:hover::before {
+    left: 100%;
+}
+
+/* Анимация загрузки */
+@keyframes loading {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.loading-spinner {
+    animation: loading 1s linear infinite;
+}
+
+/* Стили для прогресс-бара (если понадобится) */
+.progress-bar {
+    background: linear-gradient(90deg, #00f0ff 0%, #7000ff 100%);
+    transition: width 0.3s ease;
+}
+
+/* Адаптивность для мобильных устройств */
+@media (max-width: 768px) {
+    .gradient-border {
+        padding: 1rem;
+    }
+    
+    #logConsole {
+        min-height: 300px;
+    }
+}

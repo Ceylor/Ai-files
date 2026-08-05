@@ -1,0 +1,14 @@
+{
+  "avg_cut_duration": 1.38,
+  "avg_zoom_factor": 1.08,
+  "target_bpm": 120.0,
+  "bpm_range": [
+    100.0,
+    140.0
+  ],
+  "target_energy_percent": 70,
+  "preferred_camelot": "Any",
+  "editing_rule": "dynamic_beat_sync",
+  "description": "Динамичный клип с частыми склейками под ритм музыки",
+  "version": "3.0 (Audio-Enhanced Timbrica Logic)"
+}

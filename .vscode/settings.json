@@ -1,0 +1,8 @@
+{
+  "python.defaultInterpreterPath": "C:\\Users\\яр-нася-мишунька\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+  "python.terminal.activateEnvironment": false,
+  "python.analysis.extraPaths": [
+    "."
+  ],
+  "python.analysis.typeCheckingMode": "basic"
+}

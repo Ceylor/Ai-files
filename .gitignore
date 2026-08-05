@@ -1,0 +1,18 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# Data directories
+data/input/
+data/output/
+data/temp/
+data/music_library/
+
+# Token cache
+data/temp/gigachat_token.json

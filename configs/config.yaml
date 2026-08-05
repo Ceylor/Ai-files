@@ -1,0 +1,114 @@
+# ==============================================================================
+# AI AUTO-EDITOR PRO - MASTER CONFIGURATION
+# ==============================================================================
+
+general:
+  input_dir: "./data/input"
+  output_dir: "./data/output"
+  temp_dir: "./data/temp"
+  music_library_dir: "./data/music_library"
+  resolution: [1080, 1920]  # 9:16 vertical
+  fps: 30
+  video_bitrate: "8M"
+  audio_bitrate: "192k"
+  log_level: "INFO"
+
+# ------------------------------------------------------------------------------
+# AI BRAIN (LLM & Vision)
+# ------------------------------------------------------------------------------
+ai_brain:
+  primary_provider: "ollama"  # ollama ��� gigachat
+  ollama:
+    model: "qwen2.5-coder:3b"
+    base_url: "http://localhost:11434"
+    timeout: 120
+    num_gpu: 15  # ���� �� GPU (��������� �� CPU)
+  
+  cloud_fallback:
+    enabled: true
+    provider: "gigachat"
+    
+    # Credentials are read from environment variables (see .env.example)
+    client_id_env: "GIGACHAT_CLIENT_ID"
+    scope: "GIGACHAT_API_PERS"
+    authorization_key_env: "GIGACHAT_AUTH_KEY"
+    
+    # GigaChat model
+    model: "GigaChat-2-Max"  # or "GigaChat-Pro", "GigaChat-Plus"
+    
+    # Token cache (refreshed ~30 min)
+    token_cache_file: "./data/temp/gigachat_token.json"
+    token_refresh_threshold: 300  # refresh 5 min before expiry
+
+# ------------------------------------------------------------------------------
+# SUBTITLES (������ �������� ����� � ��������)
+# ------------------------------------------------------------------------------
+subtitles:
+  enabled: true
+  font:
+    path: "./assets/fonts/Montserrat-Bold.ttf"
+    size: 52
+    color: "#FFFFFF"
+  highlight:
+    enabled: true
+    color: "#FFD700"  # ������� ��� �������� ����
+    keywords_file: "./assets/keywords.txt"
+  position:
+    x: 540  # ����� �� X ��� 1080
+    y: 1500  # ���������� ���� ��� UI VK/YT/Rutube
+    alignment: "center"
+  effects:
+    shadow: true
+    shadow_color: "#000000"
+    outline: true
+    outline_width: 3
+  animation:
+    type: "word_by_word"
+    word_delay_ms: 60
+
+# ------------------------------------------------------------------------------
+# MUSIC AI (����� ������ � �������������)
+# ------------------------------------------------------------------------------
+music:
+  source: "hybrid"  # local_library, pixabay_api, hybrid
+  pixabay:
+    api_key_env: "PIXABAY_API_KEY"  # ���� ���� ����
+  mood_matching: true
+  bpm_sync: true
+  volume:
+    voice_ducking_db: -14  # ��������� ���� ������ ��� ������
+    music_volume_db: -20  # ������� ��������� ������
+    fade_in_sec: 1.5
+    fade_out_sec: 2.5
+
+# ------------------------------------------------------------------------------
+# EDITING (���������������� ������)
+# ------------------------------------------------------------------------------
+editing:
+  max_clip_duration: 60
+  min_clip_duration: 15
+  target_clips_count: "auto"
+  transition_type: "dynamic_cut"  # cut, fade, zoom, dynamic_cut
+  auto_reframe:
+    enabled: true
+    tracking: "face"  # face, object, center
+    padding: 1.25
+    smoothing: 0.8
+  ken_burns:
+    enabled: true
+    zoom_factor: 1.15
+
+# ------------------------------------------------------------------------------
+# EXPORT (���������� ������)
+# ------------------------------------------------------------------------------
+export:
+  codec: "h264_nvenc"
+  preset: "p4"
+  tune: "hq"
+  rc: "vbr"
+  cq: 19
+  platforms:
+    - name: "vk_clips"
+      tags: ["#shorts", "#vk"]
+    - name: "yt_shorts"
+      tags: ["#shorts", "#youtube"]
