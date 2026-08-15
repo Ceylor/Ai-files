@@ -10,6 +10,11 @@
 ошибка логируется и выбирается следующий. Это важно, т.к. тяжёлые
 ML-зависимости (faiss-cpu, chromadb) могут отсутствовать в окружении.
 
+Параметр prefer_backend строго уважается:
+    - "faiss"  → пытаемся подключить FAISS, иначе NumPy;
+    - "chroma" → пытаемся подключить ChromaDB, иначе NumPy;
+    - "numpy"  → всегда используем NumPy (без тяжёлых бэкендов).
+
 Интерфейс:
     VectorStore.add(embedding, metadata) -> id
     VectorStore.search(query_vector, k) -> List[SearchHit]
@@ -26,6 +31,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("learning.vector_store")
+
 
 # Заглушка-класс для типизации, чтобы не требовать фаисс на импорте.
 class _FAISSBackend:
@@ -84,7 +90,8 @@ class VectorStore:
 
     # ------------------------------------------------------------------ init
     def _init_faiss(self, prefer: str) -> Optional[_FAISSBackend]:
-        if prefer == "chroma":
+        # При prefer=numpy и prefer=chroma не используем FAISS.
+        if prefer in ("chroma", "numpy"):
             return None
         try:
             import faiss  # type: ignore
@@ -99,7 +106,8 @@ class VectorStore:
             return None
 
     def _init_chroma(self, prefer: str):
-        if prefer == "faiss":
+        # При prefer=numpy и prefer=faiss не используем ChromaDB.
+        if prefer in ("faiss", "numpy"):
             return None
         try:
             import chromadb  # type: ignore
@@ -125,16 +133,18 @@ class VectorStore:
         item_id = f"pat_{self._id_counter:06d}"
 
         if self._chroma is not None:
+            # ChromaDB не принимает пустой dict в metadata — используем непустой плейсхолдер.
+            chroma_meta = metadata if metadata else {"_stored": True}
             self._chroma["collection"].add(
                 ids=[item_id],
                 embeddings=[embedding],
-                metadatas=[metadata or {}],
+                metadatas=[chroma_meta],
             )
         elif self._faiss is not None and self._faiss.available:
             import faiss  # type: ignore
 
             vec = [embedding]
-            faiss.normalize_L2(vec)  # нормируем для косинусного сходства через inner product
+            faiss.normalize_L2(vec)  # н��рмируем для косинусного сходства через inner product
             self._faiss._index.add(vec)
             self._vectors.append(embedding)
             self._ids.append(item_id)

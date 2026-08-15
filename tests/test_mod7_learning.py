@@ -4,7 +4,7 @@
 Проверяют:
     - извлечение паттерна из синтетического видео (все слои заполнены);
     - построение вектора признаков (размерность и нормализация);
-    - работу векторного хранилища (numpy fallback): add/search/persist/load;
+    - работу векторного хранилища (numpy fallback): add/search/persist/load/clear;
     - оркестратор LearningEngine: обучение, поиск похожих, агрегированный профиль;
     - graceful-fallback при отсутствии тяжёлых бэкендов (faiss/chroma).
 
@@ -159,9 +159,10 @@ def test_vector_store_wrong_dimension(tmp_store: Path):
 
 
 def test_vector_store_clear(tmp_store: Path):
-    """Очистка хранилища."""
+    """Очистка хранилища: после добавления элемента и clear() размер = 0."""
     store = get_vector_store(tmp_store, vector_size=2, prefer_backend="numpy")
-    store.add([1.0, 0.0], {})
+    store.add([1.0, 0.0], {"dummy": "value"})
+    assert store.count() == 1
     store.clear()
     assert store.count() == 0
 
