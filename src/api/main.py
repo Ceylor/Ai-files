@@ -6,7 +6,7 @@ import json
 import asyncio
 from pathlib import Path
 from typing import List, Optional, Optional
-from fastapi import FastAPI, WebSocket, UploadFile, File, WebSocketDisconnect, Form
+from fastapi import FastAPI, WebSocket, UploadFile, File, WebSocketDisconnect, Form, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import aiofiles
@@ -16,6 +16,8 @@ from src.utils.logger import ws_manager
 from src.utils.style_profiler import analyze_reference_clips
 from src.utils.auto_tagger import analyze_music_library
 from src.utils.security import sanitize_filename, sanitize_category
+from src.modules.mod7_learning.learner import LearningEngine
+from src.modules.mod7_learning.pattern_extractor import extract_pattern_async
 
 app = FastAPI(title="AI AutoClip Pro - Multi-Category")
 
@@ -25,6 +27,10 @@ DATA_DIR = BASE_DIR / "data"
 REF_DIR = DATA_DIR / "reference_clips"
 INPUT_DIR = DATA_DIR / "input"
 OUTPUT_DIR = DATA_DIR / "output"
+LEARNING_STORE_DIR = DATA_DIR / "learning_store"
+
+# Движок самообучения (непрерывное накопление паттернов).
+learning_engine = LearningEngine(LEARNING_STORE_DIR)
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_dashboard():
@@ -45,6 +51,96 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
+
+# --- САМООБУЧЕНИЕ НА ПРИМЕРАХ (модуль 7) ---
+
+@app.post("/api/learning/train")
+async def learning_train(category: str = Form("default")):
+    """
+    Запускает самообучение по референсным клипам категории.
+    Анализирует готовые клипы, извлекает "паттерны успеха" и сохраняет в векторное хранилище.
+    """
+    category = sanitize_category(category)
+    cat_dir = REF_DIR / category
+    if not cat_dir.exists() or not any(cat_dir.iterdir()):
+        raise HTTPException(status_code=404, detail=f"Папка категории '{category}' пуста или не найдена")
+
+    await ws_manager.broadcast(f"🧠 Запуск самообучения категории '{category}'...")
+    asyncio.create_task(run_learning_task(category))
+    return {"status": "started", "category": category}
+
+async def run_learning_task(category: str):
+    """Фоновая задача самообучения по категории."""
+    try:
+        cat_dir = REF_DIR / category
+        await learning_engine.learn_from_references(cat_dir, category=category)
+    except Exception as e:
+        await ws_manager.broadcast(f"❌ Ошибка самообучения '{category}': {e}")
+        import traceback
+        traceback.print_exc()
+
+@app.get("/api/learning/status")
+async def learning_status():
+    """Статус движка самообучения: бэкенд, число паттернов, категории."""
+    return learning_engine.stats()
+
+@app.get("/api/learning/categories")
+async def learning_categories():
+    """Список категорий с обученными паттернами."""
+    return {"categories": learning_engine.list_categories()}
+
+@app.get("/api/learning/profile/{category}")
+async def learning_profile(category: str):
+    """
+    Агрегированный профиль стиля категории (усреднённый "паттерн успеха").
+    Применяется к новым видео для монтажа в стиле категории.
+    """
+    category = sanitize_category(category)
+    profile = learning_engine.get_category_profile(category)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Для категории '{category}' нет обученных паттернов")
+    return profile.serialize()
+
+@app.get("/api/learning/find_similar/{category}")
+async def learning_find_similar(category: str, k: int = 5):
+    """
+    Возвращает k ближайших "паттернов успеха" в категории.
+    Используется для выбора наиболее подходящего стиля под новое видео.
+    """
+    category = sanitize_category(category)
+    profile = learning_engine.get_category_profile(category)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Для категории '{category}' нет обученных паттернов")
+    hits = learning_engine.find_similar(profile, category=category, k=k)
+    return {
+        "category": category,
+        "hits": [
+            {"score": round(h.score, 4), "source_path": h.metadata.get("source_path", "")}
+            for h in hits
+        ],
+    }
+
+@app.post("/api/learning/extract")
+async def learning_extract(files: List[UploadFile] = File(...), category: str = Form("default")):
+    """Извлекает паттерн из загруженного видео без сохранения в хранилище."""
+    category = sanitize_category(category)
+    patterns = []
+    tmp_dir = DATA_DIR / "temp" / "learning_extract"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    for file in files:
+        safe_name = sanitize_filename(file.filename)
+        file_path = tmp_dir / safe_name
+        async with aiofiles.open(file_path, "wb") as out_file:
+            await out_file.write(await file.read())
+        try:
+            pattern = await extract_pattern_async(file_path, category=category)
+            patterns.append(pattern.serialize())
+        except Exception as e:
+            await ws_manager.broadcast(f"⚠️  Ошибка извлечения паттерна {safe_name}: {e}")
+        finally:
+            if file_path.exists():
+                file_path.unlink()
+    return {"status": "success", "category": category, "patterns": patterns}
 
 # --- ЗАГРУЗКА РЕФЕРЕНСОВ ПО КАТЕГОРИЯМ ---
 
@@ -338,7 +434,8 @@ async def get_status():
     return {
         "status": "running",
         "version": "2.0",
-        "categories": [d.name for d in REF_DIR.iterdir() if d.is_dir()] if REF_DIR.exists() else []
+        "categories": [d.name for d in REF_DIR.iterdir() if d.is_dir()] if REF_DIR.exists() else [],
+        "learning": learning_engine.stats(),
     }
 
 if __name__ == "__main__":
