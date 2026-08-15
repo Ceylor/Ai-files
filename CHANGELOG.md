@@ -5,6 +5,40 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 проект придерживается [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.7.0] — Футуристический редизайн и сохранение темы
+
+### Добавлено
+- **Сохранение темы** — глобальный `ThemeProvider` (`frontend/components/ThemeProvider.jsx`):
+  - тема читается из `localStorage` при загрузке и сразу применяется к `<html class="dark">`;
+  - тёмная тема **по умолчанию** (не зависит от системной);
+  - `useTheme` (`lib/useTheme.js`) — тонкая обёртка над контекстом.
+- **Футуристический hi-tech дизайн**:
+  - неоновая палитра (`#0a0a0f`, `#111118`, `#1a1a2e`; акценты `#00f0ff`, `#7c3aed`, `#d946ef`, `#fbbf24`);
+  - glassmorphism-карточки (полупрозрачный фон + blur + тонкая рамка + тень);
+  - неоновые градиенты в заголовках, кнопках, активных пунктах навигации;
+  - шрифты Inter + Space Grotesk (`next/font/google`);
+  - фоновые эффекты: неоновая сетка и анимированные частицы (чистый CSS) — `BackgroundFX.jsx`;
+  - плавные анимации появления через **framer-motion** (`AnimatedSection.jsx`, страницы);
+  - графики дашборда на **recharts** (PieChart, BarChart).
+- **Таймлайн** (`frontend/components/Timeline.jsx`) — стиль профессионального видеоредактора:
+  - сегменты с неоновыми градиентами по статусу;
+  - маркеры переходов (fade/zoom/spin/cut);
+  - анимация выбора сегмента (framer-motion).
+- **`frontend/package.json`** — добавлены `framer-motion`, `recharts` (установка: `npm install`).
+
+### Изменено
+- `frontend/app/layout.js` — подключение шрифтов и `ThemeProvider`.
+- `frontend/tailwind.config.js` — неоновая палитра, шрифты, тени, анимации.
+- `frontend/app/globals.css` — glassmorphism, неон, частицы, скроллбар.
+- `frontend/components/` — `Layout`, `Sidebar`, `Card`, `Button`, `StatusBadge`, `VideoPlayer`, `UploadFolderForm`, `BatchDetails` — неоновый стиль.
+- `frontend/app/` — `page.js` (дашборд с recharts), `tasks`, `results` (таймлайн), `categories`, `learning`, `settings` — единый hi-tech стиль и framer-motion-анимации.
+
+### Удалено
+- `frontend/components/MiniBarChart.jsx`, `DonutChart.jsx` — заменены на графики recharts.
+
+### Примечания
+- Перед запуском фронтенда выполните `cd frontend && npm install` (будут установлены `framer-motion`, `recharts`).
+
 ## [0.6.1] — Упрощение запуска для не-технических пользователей
 
 ### Добавлено

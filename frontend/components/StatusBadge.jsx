@@ -1,12 +1,15 @@
 const STATUS_STYLES = {
-  pending: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
-  processing: "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300",
-  completed: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
-  composed: "bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300",
-  error: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
-  analyzed: "bg-teal-100 text-teal-700 dark:bg-teal-900/50 dark:text-teal-300",
-  uploaded: "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300",
-  analyzing: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300",
+  pending: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  processing:
+    "bg-cyan-500/15 text-cyan-300 border-cyan-500/30 shadow-[0_0_8px_rgba(0,240,255,0.2)]",
+  completed: "bg-green-500/15 text-green-300 border-green-500/30",
+  composed:
+    "bg-fuchsia-500/15 text-fuchsia-300 border-fuchsia-500/30 shadow-[0_0_8px_rgba(217,70,239,0.2)]",
+  error: "bg-red-500/15 text-red-300 border-red-500/30",
+  analyzed: "bg-teal-500/15 text-teal-300 border-teal-500/30",
+  uploaded: "bg-slate-500/15 text-slate-300 border-slate-500/30",
+  analyzing:
+    "bg-violet-500/15 text-violet-300 border-violet-500/30 shadow-[0_0_8px_rgba(124,58,237,0.2)]",
 };
 
 const STATUS_LABELS = {
@@ -21,10 +24,14 @@ const STATUS_LABELS = {
 };
 
 export default function StatusBadge({ status }) {
-  const style = STATUS_STYLES[status] || "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300";
+  const style =
+    STATUS_STYLES[status] ||
+    "bg-slate-500/15 text-slate-300 border-slate-500/30";
   const label = STATUS_LABELS[status] || status;
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${style}`}>
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium backdrop-blur-sm ${style}`}
+    >
       {label}
     </span>
   );

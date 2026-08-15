@@ -1,20 +1,20 @@
 "use client";
 
+import { motion } from "framer-motion";
+
 /**
- * Анимированная секция — плавное появление содержимого.
- *
- * Props:
- * - children: содержимое.
- * - delay: задержка (ms) перед появлением.
- * - className: доп. классы.
+ * Анимированная секция на framer-motion.
+ * Плавное появление с подъёмом.
  */
 export default function AnimatedSection({ children, delay = 0, className = "" }) {
   return (
-    <div
-      className={`animate-fade-in-up ${className}`}
-      style={{ animationDelay: `${delay}ms` }}
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, delay, ease: "easeOut" }}
+      className={className}
     >
       {children}
-    </div>
+    </motion.div>
   );
 }

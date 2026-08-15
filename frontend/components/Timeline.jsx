@@ -1,25 +1,44 @@
 "use client";
 
 import { useState } from "react";
+import { motion } from "framer-motion";
 
 /**
- * Визуальный таймлайн — движок для отображения и выбора сегментов клипа.
+ * Визуальный таймлайн в стиле профессионального видеоредактора.
+ *
+ * Props:
+ * - segments: [{ id, label, start, end, status }]
+ * - transitions: [{ at, type }] — точки переходов между сегментами.
+ * - height: высота дорожки.
+ * - onSelect: (segment) => void
  */
-const STATUS_COLORS = {
-  processing: "bg-blue-500 dark:bg-blue-400",
-  analyzing: "bg-indigo-500 dark:bg-indigo-400",
-  completed: "bg-green-500 dark:bg-green-400",
-  composed: "bg-purple-500 dark:bg-purple-400",
-  error: "bg-red-500 dark:bg-red-400",
-  pending: "bg-amber-500 dark:bg-amber-400",
+const STATUS_GRADIENT = {
+  processing: "from-blue-500 to-cyan-400",
+  analyzing: "from-indigo-500 to-violet-500",
+  completed: "from-green-500 to-emerald-400",
+  composed: "from-fuchsia-500 to-purple-500",
+  error: "from-red-500 to-rose-400",
+  pending: "from-amber-500 to-yellow-400",
 };
 
-export default function Timeline({ segments = [], height = 64, onSelect }) {
+const TRANSITION_LABELS = {
+  fade: "🌗",
+  zoom: "🔍",
+  spin: "🌀",
+  cut: "✂️",
+};
+
+export default function Timeline({
+  segments = [],
+  transitions = [],
+  height = 64,
+  onSelect,
+}) {
   const [selected, setSelected] = useState(null);
 
   if (!segments.length) {
     return (
-      <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-400 dark:border-slate-600 dark:bg-slate-800/50">
+      <div className="glass flex h-24 items-center justify-center rounded-xl text-sm text-slate-400">
         Нет сегментов для отображения на таймлайне
       </div>
     );
@@ -34,40 +53,68 @@ export default function Timeline({ segments = [], height = 64, onSelect }) {
 
   return (
     <div className="space-y-2">
+      {/* Дорожка */}
       <div
-        className="relative w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-900"
+        className="relative w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100/50 dark:border-white/10 dark:bg-night-900/60"
         style={{ height }}
       >
+        {/* Сетка */}
         {Array.from({ length: 11 }).map((_, i) => (
           <div
             key={i}
-            className="absolute top-0 h-full w-px bg-slate-300/60 dark:bg-slate-600/40"
+            className="absolute top-0 h-full w-px bg-slate-300/50 dark:bg-white/5"
             style={{ left: `${i * 10}%` }}
           />
         ))}
 
+        {/* Сегменты */}
         {segments.map((seg) => {
-          const left = (seg.start || 0) / total * 100;
-          const width = Math.max(((seg.end || seg.start + 1) - (seg.start || 0)) / total * 100, 2);
-          const color = STATUS_COLORS[seg.status] || "bg-slate-400 dark:bg-slate-500";
+          const left = ((seg.start || 0) / total) * 100;
+          const width = Math.max(
+            ((seg.end || seg.start + 1) - (seg.start || 0)) / total * 100,
+            3
+          );
+          const gradient =
+            STATUS_GRADIENT[seg.status] || "from-slate-400 to-slate-500";
           const isActive = selected === seg.id;
 
           return (
-            <button
+            <motion.button
               key={seg.id ?? seg.label}
               onClick={() => handleSelect(seg)}
-              className={`absolute top-1 bottom-1 rounded-md px-1.5 text-left text-[10px] font-medium text-white shadow-sm transition-all duration-200 ${color} ${
-                isActive ? "ring-2 ring-brand-500 z-10 scale-y-105" : "hover:opacity-80"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: isActive ? 1.04 : 1 }}
+              transition={{ duration: 0.25 }}
+              className={`absolute top-1 bottom-1 rounded-md bg-gradient-to-r ${gradient} px-1.5 text-left text-[10px] font-semibold text-white shadow-lg transition-all duration-200 ${
+                isActive
+                  ? "z-10 ring-2 ring-neon-cyan shadow-neon-cyan"
+                  : "hover:brightness-110"
               }`}
               style={{ left: `${left}%`, width: `${width}%` }}
               title={`${seg.label} (${seg.start?.toFixed(1) ?? 0}–${seg.end?.toFixed(1) ?? ""}s)`}
             >
-              <span className="truncate">{seg.label}</span>
-            </button>
+              <span className="truncate drop-shadow">{seg.label}</span>
+            </motion.button>
+          );
+        })}
+
+        {/* Маркеры переходов */}
+        {transitions.map((tr, i) => {
+          const left = ((tr.at || 0) / total) * 100;
+          return (
+            <div
+              key={i}
+              className="absolute top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-full bg-night-900 px-1 text-[10px] shadow-neon-cyan"
+              style={{ left: `${left}%` }}
+              title={`Переход: ${tr.type}`}
+            >
+              {TRANSITION_LABELS[tr.type] || "•"}
+            </div>
           );
         })}
       </div>
 
+      {/* Шкала времени */}
       <div className="flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500">
         <span>0s</span>
         <span>{total.toFixed(1)}s</span>
