@@ -14,7 +14,7 @@ Pydantic-модели "паттерна успеха" — типизирован
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -123,3 +123,15 @@ class EditPattern(BaseModel):
     def deserialize(cls, data: Dict[str, Any]) -> "EditPattern":
         """Восстановление паттерна из словаря."""
         return cls(**data)
+
+
+# ==============================================================================
+# Завершение определения моделей (Pydantic v2)
+#
+# В Pydantic v2 при наличии аннотаций, ссылающихся на ещё не определённые
+# типы, либо использующих Optional с forward-ссылками, требуется явный вызов
+# .model_rebuild(). Это гарантирует, что все модели полностью определены
+# до первого использования (иначе: PydanticUserError: class-not-fully-defined).
+# ==============================================================================
+MusicProfile.model_rebuild()
+EditPattern.model_rebuild()
