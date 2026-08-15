@@ -14,6 +14,9 @@ opencv-python-headless>=4.9.0.80
 numpy>=1.26.0
 aiofiles>=23.2.0
 python-multipart>=0.0.6
+# --- БАЗА ДАННЫХ (SQLAlchemy 2.0 + Alembic) ---
+sqlalchemy>=2.0.0
+alembic>=1.13.0
 # --- ВЕКТОРНОЕ ХРАНИЛИЩЕ (модуль 7: самообучение) ---
 # numpy уже выше; faiss/chroma — ОПЦИОНАЛЬНЫЕ ускорители поиска.
 # Система работает и без них (встроенный numpy-fallback):

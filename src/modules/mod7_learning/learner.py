@@ -5,7 +5,8 @@
 
     learn_from_references(category, reference_dir) -> List[EditPattern]
         Анализирует все референсные клипы категории, извлекает паттерны,
-        сохраняет их в векторное хранилище (непрерывное обучение).
+        сохраняет их в векторное хранилище (непрерывное обучение)
+        и в базу данных (learning_patterns).
 
     find_similar(pattern, category=None, k=5) -> List[SearchHit]
         Ищет похожие паттерны для применения к новому видео.
@@ -13,8 +14,8 @@
     get_category_profile(category) -> EditPattern
         Агрегированный "средний" профиль категории (стиль).
 
-Движок персистентен: паттерны сохраняются в data/learning_store
-и переживают перезапуск (непрерывное накопление опыта).
+Движок персистентен: паттерны сохраняются в data/learning_store (NumPy/FAISS)
+и в SQLAlchemy-БД (learning_patterns), переживают перезапуск.
 """
 from __future__ import annotations
 
@@ -31,6 +32,8 @@ from src.modules.mod7_learning.pattern_extractor import (
     extract_pattern_async,
 )
 from src.modules.mod7_learning.vector_store import SearchHit, VectorStore, get_vector_store
+from src.database.session import session_scope
+from src.database.models import Category, LearningPattern, Video
 
 logger = logging.getLogger("learning.engine")
 
@@ -101,14 +104,115 @@ class LearningEngine:
                 logger.warning("Не удалось извлечь паттерн из %s: %s", video.name, exc)
                 await ws_manager.broadcast(f"   ⚠️  Ошибка анализа {video.name}: {exc}")
 
-        # Персистим накопленные паттерны.
+        # Персистим накопленные паттерны (векторное хранилище).
         self.store.persist()
+
+        # Сохраняем паттерны в базу данных (learning_patterns).
+        try:
+            saved_db = self.save_patterns_to_db(patterns, category=category)
+            await ws_manager.broadcast(f"   🗄️  В БД сохранено паттернов: {saved_db}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Не удалось сохранить паттерны в БД: %s", exc)
+            await ws_manager.broadcast(f"   ⚠️  Ошибка сохранения в БД: {exc}")
 
         await ws_manager.broadcast(
             f"✅ Самообучение [{category}] завершено: извлечено {len(patterns)} паттернов. "
             f"Всего в хранилище: {self.store.count()}"
         )
         return patterns
+
+    # --------------------------------------------------------------- БД-интеграция
+    def save_patterns_to_db(self, patterns: List[EditPattern], category: str) -> int:
+        """
+        Сохраняет извлечённые паттерны в таблицу learning_patterns.
+
+        Каждый паттерн привязывается к категории (создаётся, если её нет)
+        и к записи видео (создаётся, если ещё не существует).
+
+        Returns:
+            Число сохранённых паттернов.
+        """
+        saved = 0
+        try:
+            with session_scope() as db:
+                # Гарантируем существование категории.
+                db_category = db.query(Category).filter(Category.name == category).first()
+                if db_category is None:
+                    db_category = Category(name=category)
+                    db.add(db_category)
+                    db.flush()  # получить id
+
+                for pattern in patterns:
+                    # Привязка к видео по пути исходного референса.
+                    video = None
+                    if pattern.source_path:
+                        video = (
+                            db.query(Video)
+                            .filter(Video.file_path == pattern.source_path)
+                            .first()
+                        )
+                        if video is None:
+                            video = Video(
+                                file_path=pattern.source_path,
+                                duration=pattern.duration_sec or None,
+                                category_id=db_category.id,
+                                status="reference",
+                            )
+                            db.add(video)
+                            db.flush()
+
+                    db_pattern = LearningPattern(
+                        video_id=video.id if video else None,
+                        category_id=db_category.id,
+                        vector=pattern.vector or None,
+                        structure=pattern.structure.model_dump() if pattern.structure else None,
+                        tempo=pattern.tempo.avg_cut_duration if pattern.tempo else None,
+                        transitions=pattern.transitions.model_dump() if pattern.transitions else None,
+                        color_profile=pattern.color.model_dump() if pattern.color else None,
+                        music_profile=pattern.music.model_dump() if pattern.music else None,
+                    )
+                    db.add(db_pattern)
+                    saved += 1
+
+            logger.info("Сохранено паттернов в БД: %d (категория %s)", saved, category)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Ошибка сохранения паттернов в БД")
+            raise
+        return saved
+
+    def get_patterns_from_db(self, category: str) -> List[Dict[str, Any]]:
+        """
+        Возвращает паттерны категории из БД (learning_patterns).
+
+        Returns:
+            Список словарей с данными паттернов.
+        """
+        result: List[Dict[str, Any]] = []
+        try:
+            with session_scope() as db:
+                db_category = db.query(Category).filter(Category.name == category).first()
+                if db_category is None:
+                    return []
+                rows = (
+                    db.query(LearningPattern)
+                    .filter(LearningPattern.category_id == db_category.id)
+                    .all()
+                )
+                for row in rows:
+                    result.append({
+                        "id": row.id,
+                        "video_id": row.video_id,
+                        "vector": row.vector,
+                        "structure": row.structure,
+                        "tempo": row.tempo,
+                        "transitions": row.transitions,
+                        "color_profile": row.color_profile,
+                        "music_profile": row.music_profile,
+                        "created_at": row.created_at.isoformat() if row.created_at else None,
+                    })
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Ошибка чтения паттернов из БД: %s", exc)
+        return result
 
     # ------------------------------------------------------------------ поиск
     def find_similar(

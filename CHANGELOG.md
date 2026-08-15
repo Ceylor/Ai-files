@@ -5,6 +5,45 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 проект придерживается [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.3.0] — Стадия 8: Схема базы данных (SQLAlchemy 2.0 + Alembic)
+
+### Добавлено
+- **`src/database/`** — новый пакет БД:
+  - `base.py` — `DeclarativeBase` (Base) + миксин `TimestampMixin` (created_at);
+  - `models.py` — 5 SQLAlchemy-моделей в стиле 2.0 (`Mapped`, `mapped_column`):
+    - `Category` (categories) — категории с иерархией через `parent_id`;
+    - `Video` (videos) — видеофайлы с метаданными, статусом, JSON-метаданными;
+    - `LearningPattern` (learning_patterns) — паттерны самообучения (вектор + JSON-профили);
+    - `ProcessingHistory` (processing_history) — история запусков монтажа;
+    - `UserFeedback` (user_feedback) — оценки пользователя (1–5);
+  - `session.py` — engine, фабрика сессий, `get_db` (зависимость FastAPI), `session_scope` (контекстный менеджер), `init_db` (создание таблиц);
+  - `crud.py` — базовые CRUD-операции для категорий и видео.
+- **`migrations/`** — Alembic:
+  - `alembic.ini`, `env.py`, `script.py.mako`;
+  - `versions/0001_initial.py` — первая миграция (5 таблиц).
+- **REST API** (`src/api/main.py`):
+  - `lifespan` — инициализация БД при старте;
+  - CRUD-эндпоинты категорий: POST/GET/PUT/DELETE `/api/categories`;
+  - CRUD-эндпоинты видео: POST/GET/PATCH status/DELETE `/api/videos`;
+  - `/api/status` — теперь возвращает статистику БД.
+- **Интеграция с самообучением** (`learner.py`):
+  - паттерны сохраняются не только в векторное хранилище, но и в БД (`learning_patterns`);
+  - `save_patterns_to_db()` — привязка к категории и видео;
+  - `get_patterns_from_db()` — чтение паттернов из БД.
+- **`tests/test_database.py`** — юнит-тесты (изолированная SQLite): CRUD категорий/видео, иерархия, дубликаты, фильтрация, целостность моделей.
+- **`requirements.txt`** — добавлены `sqlalchemy>=2.0.0`, `alembic>=1.13.0`.
+- **`.env.example`** — добавлена переменная `DATABASE_URL`.
+- **`DATABASE.md`** — документация по запуску миграций и интеграции.
+
+### Изменено
+- **`src/api/main.py`** — подключён слой БД, эндпоинт `/api/status` дополнен статистикой БД.
+- **`src/modules/mod7_learning/learner.py`** — паттерны дублируются в БД.
+
+### Примечания
+- По умолчанию используется SQLite (`sqlite:///./data/app.db`), не требует внешнего сервера.
+- Для PostgreSQL задайте `DATABASE_URL`.
+- Миграции Alembic: `alembic upgrade head`.
+
 ## [0.2.0] — Стадия 7: Самообучение на примерах (AI AutoClip Pro 2.0)
 
 ### Добавлено

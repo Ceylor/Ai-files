@@ -4,9 +4,10 @@ FastAPI Backend для AI AutoClip Pro
 """
 import json
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional, Optional
-from fastapi import FastAPI, WebSocket, UploadFile, File, WebSocketDisconnect, Form, HTTPException
+from fastapi import FastAPI, WebSocket, UploadFile, File, WebSocketDisconnect, Form, HTTPException, Depends
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import aiofiles
@@ -18,8 +19,10 @@ from src.utils.auto_tagger import analyze_music_library
 from src.utils.security import sanitize_filename, sanitize_category
 from src.modules.mod7_learning.learner import LearningEngine
 from src.modules.mod7_learning.pattern_extractor import extract_pattern_async
-
-app = FastAPI(title="AI AutoClip Pro - Multi-Category")
+from src.database import init_db
+from src.database.session import get_db
+from src.database import crud as db_crud
+from sqlalchemy.orm import Session
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 WEB_UI_DIR = BASE_DIR / "web_ui"
@@ -28,6 +31,22 @@ REF_DIR = DATA_DIR / "reference_clips"
 INPUT_DIR = DATA_DIR / "input"
 OUTPUT_DIR = DATA_DIR / "output"
 LEARNING_STORE_DIR = DATA_DIR / "learning_store"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Жизненный цикл приложения: инициализация БД при старте."""
+    try:
+        init_db()
+        await ws_manager.broadcast("🗄️  База данных инициализирована")
+    except Exception as e:
+        await ws_manager.broadcast(f"⚠️  Ошибка инициализации БД: {e}")
+        import traceback
+        traceback.print_exc()
+    yield
+
+
+app = FastAPI(title="AI AutoClip Pro - Multi-Category", lifespan=lifespan)
 
 # Движок самообучения (непрерывное накопление паттернов).
 learning_engine = LearningEngine(LEARNING_STORE_DIR)
@@ -51,6 +70,152 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
+
+# ==============================================================================
+# CRUD: КАТЕГОРИИ
+# ==============================================================================
+
+def _category_to_dict(cat) -> dict:
+    """Сериализация категории в словарь."""
+    return {
+        "id": cat.id,
+        "name": cat.name,
+        "description": cat.description,
+        "parent_id": cat.parent_id,
+        "created_at": cat.created_at.isoformat() if cat.created_at else None,
+    }
+
+
+@app.post("/api/categories", response_model=dict)
+async def api_create_category(
+    name: str = Form(...),
+    description: Optional[str] = Form(None),
+    parent_id: Optional[int] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Создаёт новую категорию."""
+    try:
+        cat = db_crud.create_category(db, name=name, description=description, parent_id=parent_id)
+        return _category_to_dict(cat)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.get("/api/categories", response_model=dict)
+async def api_list_categories(parent_id: Optional[int] = None, db: Session = Depends(get_db)):
+    """Список категорий (опционально по родителю)."""
+    cats = db_crud.list_categories(db, parent_id=parent_id)
+    return {"categories": [_category_to_dict(c) for c in cats]}
+
+
+@app.get("/api/categories/{category_id}", response_model=dict)
+async def api_get_category(category_id: int, db: Session = Depends(get_db)):
+    """Возвращает категорию по id."""
+    cat = db_crud.get_category(db, category_id)
+    if cat is None:
+        raise HTTPException(status_code=404, detail="Категория не найдена")
+    return _category_to_dict(cat)
+
+
+@app.put("/api/categories/{category_id}", response_model=dict)
+async def api_update_category(
+    category_id: int,
+    name: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    parent_id: Optional[int] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Обновляет категорию."""
+    try:
+        cat = db_crud.update_category(db, category_id, name=name, description=description, parent_id=parent_id)
+        if cat is None:
+            raise HTTPException(status_code=404, detail="Категория не найдена")
+        return _category_to_dict(cat)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.delete("/api/categories/{category_id}", response_model=dict)
+async def api_delete_category(category_id: int, db: Session = Depends(get_db)):
+    """Удаляет категорию."""
+    ok = db_crud.delete_category(db, category_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Категория не найдена")
+    return {"status": "deleted", "id": category_id}
+
+# ==============================================================================
+# CRUD: ВИДЕО
+# ==============================================================================
+
+def _video_to_dict(v) -> dict:
+    """Сериализация видео в словарь."""
+    return {
+        "id": v.id,
+        "file_path": v.file_path,
+        "duration": v.duration,
+        "resolution": v.resolution,
+        "category_id": v.category_id,
+        "upload_date": v.upload_date.isoformat() if v.upload_date else None,
+        "status": v.status,
+        "metadata": v.metadata,
+    }
+
+
+@app.post("/api/videos", response_model=dict)
+async def api_create_video(
+    file_path: str = Form(...),
+    duration: Optional[float] = Form(None),
+    resolution: Optional[str] = Form(None),
+    category_id: Optional[int] = Form(None),
+    status: str = Form("uploaded"),
+    db: Session = Depends(get_db),
+):
+    """Создаёт запись о видеофайле."""
+    try:
+        v = db_crud.create_video(
+            db, file_path=file_path, duration=duration, resolution=resolution,
+            category_id=category_id, status=status,
+        )
+        return _video_to_dict(v)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.get("/api/videos", response_model=dict)
+async def api_list_videos(category_id: Optional[int] = None, status: Optional[str] = None,
+                          db: Session = Depends(get_db)):
+    """Список видео (опционально по категории и статусу)."""
+    videos = db_crud.list_videos(db, category_id=category_id, status=status)
+    return {"videos": [_video_to_dict(v) for v in videos]}
+
+
+@app.get("/api/videos/{video_id}", response_model=dict)
+async def api_get_video(video_id: int, db: Session = Depends(get_db)):
+    """Возвращает видео по id."""
+    v = db_crud.get_video(db, video_id)
+    if v is None:
+        raise HTTPException(status_code=404, detail="Видео не найдено")
+    return _video_to_dict(v)
+
+
+@app.patch("/api/videos/{video_id}/status", response_model=dict)
+async def api_update_video_status(
+    video_id: int, status: str = Form(...), db: Session = Depends(get_db)
+):
+    """Обновляет статус видео."""
+    v = db_crud.update_video_status(db, video_id, status=status)
+    if v is None:
+        raise HTTPException(status_code=404, detail="Видео не найдено")
+    return _video_to_dict(v)
+
+
+@app.delete("/api/videos/{video_id}", response_model=dict)
+async def api_delete_video(video_id: int, db: Session = Depends(get_db)):
+    """Удаляет запись о видео."""
+    ok = db_crud.delete_video(db, video_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Видео не найдено")
+    return {"status": "deleted", "id": video_id}
 
 # --- САМООБУЧЕНИЕ НА ПРИМЕРАХ (модуль 7) ---
 
@@ -430,12 +595,20 @@ async def run_full_pipeline_task(category: str):
 # --- СТАТУС ---
 
 @app.get("/api/status")
-async def get_status():
+async def get_status(db: Session = Depends(get_db)):
+    """Общий статус сервиса: версия, категории, самообучение, БД."""
+    try:
+        db_categories = db_crud.list_categories(db)
+        db_videos = db_crud.list_videos(db)
+        db_summary = {"categories": len(db_categories), "videos": len(db_videos)}
+    except Exception as e:
+        db_summary = {"error": str(e)}
     return {
         "status": "running",
         "version": "2.0",
         "categories": [d.name for d in REF_DIR.iterdir() if d.is_dir()] if REF_DIR.exists() else [],
         "learning": learning_engine.stats(),
+        "database": db_summary,
     }
 
 if __name__ == "__main__":
