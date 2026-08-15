@@ -19,7 +19,13 @@ from src.database.session import (
     init_db,
     session_scope,
 )
-from src.database import models  # noqa: F401  (регистрация моделей в метаданных)
+from src.database.models import (  # noqa: F401  (регистрация моделей в метаданных)
+    Category,
+    LearningPattern,
+    ProcessingHistory,
+    UserFeedback,
+    Video,
+)
 
 __all__ = [
     "Base",
@@ -28,5 +34,9 @@ __all__ = [
     "get_db",
     "init_db",
     "session_scope",
-    "models",
+    "Category",
+    "Video",
+    "LearningPattern",
+    "ProcessingHistory",
+    "UserFeedback",
 ]
