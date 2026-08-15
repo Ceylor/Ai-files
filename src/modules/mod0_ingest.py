@@ -1,3 +1,252 @@
+"""
+Стадия 0: Ингестия и нормализация видеофайлов.
+
+Модуль собирает ffprobe-метаданные, авто-поворачивает кадры по EXIF/rotate,
+нормализует fps/разрешение к целевым (30 fps, 1080x1920 через pad),
+извлекает аудио (PCM mono) для последующих стадий (whisper, beat-анализ).
+
+Graceful fallback: битый/нечитаемый файл не роняет обработку, логируется
+и пропускается. Поддерживается dry-run режим (--analyze-only).
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import subprocess
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
+
+from src.core.config_loader import load_config
+
+logger = logging.getLogger("mod0_ingest")
+
+
+# ==============================================================================
+# Конфигурация
+# ==============================================================================
+class IngestConfig(BaseModel):
+    """Конфигурация ингестии/нормализации."""
+
+    target_fps: int = Field(30, description="Целевой FPS")
+    interpolate: bool = Field(True, description="minterpolate для 24/25 fps")
+    target_resolution: List[int] = Field([1080, 1920], description="Целевое разрешение WxH")
+    pad: bool = Field(True, description="pad вместо crop (не теряем контент)")
+    auto_rotate: bool = Field(True, description="авто-поворот по rotate/EXIF")
+    extract_audio: bool = Field(True, description="извлекать аудио")
+    audio_sample_rate: int = Field(16000, description="частота дискретизации аудио")
+
+
+def build_ingest_config(config: Optional[Dict[str, Any]] = None) -> IngestConfig:
+    """Строит IngestConfig из dict (или fallback-конфигурацию по умолчанию)."""
+    if not config:
+        return IngestConfig()
+    ingest = config.get("ingest", {}) if isinstance(config, dict) else {}
+    return IngestConfig(
+        target_fps=ingest.get("target_fps", 30),
+        interpolate=ingest.get("interpolate", True),
+        target_resolution=list(ingest.get("target_resolution", [1080, 1920])),
+        pad=ingest.get("pad", True),
+        auto_rotate=ingest.get("auto_rotate", True),
+        extract_audio=ingest.get("extract_audio", True),
+        audio_sample_rate=ingest.get("audio_sample_rate", 16000),
+    )
+
+
+# ==============================================================================
+# Основной класс ингестии
+# ==============================================================================
+class VideoIngest0:
+    """Сбор метаданных и нормализация одного видеофайла."""
+
+    def __init__(self, temp_dir: Path, config: Optional[IngestConfig] = None):
+        self.temp_dir = Path(temp_dir)
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        self.config = config or IngestConfig()
+
+    async def _run(self, cmd: List[str]) -> subprocess.CompletedProcess:
+        """Запускает subprocess и возвращает результат (без блокировки loop)."""
+        return await asyncio.to_thread(
+            subprocess.run, cmd, capture_output=True, timeout=120
+        )
+
+    # ------------------------------------------------------------------ метаданные
+    async def analyze_video(self, video_path: Path) -> Dict[str, Any]:
+        """Собирает ffprobe-метаданные о видео."""
+        video_path = Path(video_path)
+        cmd = [
+            "ffprobe", "-v", "error", "-print_format", "json",
+            "-show_streams", "-show_format", str(video_path),
+        ]
+        try:
+            proc = await self._run(cmd)
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr.decode(errors="ignore")[:300])
+            data = json.loads(proc.stdout.decode(errors="ignore"))
+
+            video_stream = next(
+                (s for s in data.get("streams", []) if s.get("codec_type") == "video"), {}
+            )
+            audio_stream = next(
+                (s for s in data.get("streams", []) if s.get("codec_type") == "audio"), {}
+            )
+
+            width = int(video_stream.get("width", 0))
+            height = int(video_stream.get("height", 0))
+            rotation = 0
+            side_data = video_stream.get("side_data_list", [])
+            for sd in side_data:
+                if "rotation" in sd:
+                    rotation = int(float(sd["rotation"]))
+                    break
+
+            fps_num = video_stream.get("avg_frame_rate", "30/1")
+            try:
+                num, den = fps_num.split("/")
+                fps = int(num) / int(den) if int(den) else 0.0
+            except Exception:  # noqa: BLE001
+                fps = 0.0
+
+            duration = float(data.get("format", {}).get("duration", 0) or 0)
+
+            return {
+                "success": True,
+                "filename": video_path.name,
+                "path": str(video_path),
+                "width": width,
+                "height": height,
+                "rotation": rotation,
+                "fps": round(fps, 2),
+                "duration": duration,
+                "has_audio": bool(audio_stream),
+                "codec": video_stream.get("codec_name", ""),
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Не удалось проанализировать %s: %s", video_path.name, exc)
+            return {
+                "success": False,
+                "filename": video_path.name,
+                "path": str(video_path),
+                "error": str(exc),
+            }
+
+    # ------------------------------------------------------------------ нормализация
+    async def normalize_video(self, video_path: Path, output_path: Path) -> bool:
+        """Нормализует видео к целевым fps/разрешению (pad). Возвращает True при успехе."""
+        meta = await self.analyze_video(video_path)
+        if not meta.get("success"):
+            return False
+
+        tw, th = self.config.target_resolution
+        vf_parts: List[str] = []
+
+        # Авто-поворот по EXIF/rotate.
+        if self.config.auto_rotate and meta.get("rotation"):
+            rotation = meta["rotation"]
+            if rotation == 90:
+                vf_parts.append("transpose=1")
+            elif rotation == 180:
+                vf_parts.append("transpose=1,transpose=1")
+            elif rotation == 270:
+                vf_parts.append("transpose=2")
+
+        # Приведение к целевому размеру с pad (не теряем контент).
+        vf_parts.append(f"scale={tw}:{th}:force_original_aspect_ratio=decrease")
+        if self.config.pad:
+            vf_parts.append(f"pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2:color=black")
+
+        # Нормализация fps.
+        fps_filter = ""
+        if meta.get("fps") and abs(float(meta["fps"]) - self.config.target_fps) > 1:
+            if self.config.interpolate:
+                fps_filter = f",minterpolate=fps={self.config.target_fps}"
+            else:
+                fps_filter = f",fps={self.config.target_fps}"
+
+        vf = ",".join(vf_parts) + fps_filter
+
+        cmd = [
+            "ffmpeg", "-y", "-i", str(video_path),
+            "-vf", vf,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-an",  # без аудио на этом шаге
+            str(output_path),
+        ]
+        try:
+            proc = await self._run(cmd)
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr.decode(errors="ignore")[:300])
+            return output_path.exists() and output_path.stat().st_size > 0
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Ошибка нормализации %s: %s", video_path.name, exc)
+            return False
+
+    # ------------------------------------------------------------------ аудио
+    async def extract_audio(self, video_path: Path) -> Optional[Path]:
+        """Извлекает аудио (PCM mono) в temp_dir. Возвращает путь или None."""
+        output_path = self.temp_dir / f"{Path(video_path).stem}.wav"
+        cmd = [
+            "ffmpeg", "-y", "-i", str(video_path),
+            "-ac", "1",
+            "-ar", str(self.config.audio_sample_rate),
+            str(output_path),
+        ]
+        try:
+            proc = await self._run(cmd)
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr.decode(errors="ignore")[:300])
+            if output_path.exists() and output_path.stat().st_size > 0:
+                return output_path
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Ошибка извлечения аудио %s: %s", video_path.name, exc)
+            return None
+
+    # ------------------------------------------------------------------ полный процесс
+    async def process_video(self, video_path: Path) -> Dict[str, Any]:
+        """Полный цикл: метаданные -> нормализация -> аудио."""
+        video_path = Path(video_path)
+        if not video_path.exists():
+            logger.warning("Файл не найден: %s", video_path)
+            return {"success": False, "filename": video_path.name, "error": "file not found",
+                    "normalized_path": None, "meta": {"filename": video_path.name, "success": False}}
+
+        meta = await self.analyze_video(video_path)
+        if not meta.get("success"):
+            return {**meta, "normalized_path": None}
+
+        normalized_path = self.temp_dir / f"norm_{video_path.stem}.mp4"
+        ok = await self.normalize_video(video_path, normalized_path)
+        normalized = str(normalized_path) if ok and normalized_path.exists() else None
+
+        audio_path = None
+        if self.config.extract_audio and normalized:
+            audio_path = await self.extract_audio(Path(normalized))
+            audio_path = str(audio_path) if audio_path else None
+
+        return {
+            "success": True,
+            "meta": meta,
+            "normalized_path": normalized,
+            "audio_path": audio_path,
+            "duration": meta.get("duration", 0),
+            "scenes": [],
+            "transcript": [],
+        }
+
+    # ------------------------------------------------------------------ dry-run
+    async def analyze_only(self, video_files: List[Path]) -> List[Dict[str, Any]]:
+        """Dry-run: собирает метаданные по всем файлам без обработки."""
+        report = []
+        for video in video_files:
+            meta = await self.analyze_video(video)
+            meta["analyzed_at"] = "dry-run"
+            report.append(meta)
+        return report
+
+
 # ==============================================================================
 # ПАКЕТНЫЕ ФУНКЦИИ (для вызова из пайплайна)
 # ==============================================================================
