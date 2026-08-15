@@ -314,14 +314,15 @@ async def test_compose_and_save(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(processor, "_broadcast", noop)
 
-    # Класс видео-заглушки.
+    # Класс видео-заглушки (с атрибутом file_path, который нужен _compose_and_save).
     class FakeVideo:
-        def __init__(self, vid, status):
+        def __init__(self, vid, status, file_path):
             self.id = vid
             self.status = status
+            self.file_path = file_path
 
-    completed_video = FakeVideo(1, "completed")
-    not_completed = FakeVideo(2, "error")
+    completed_video = FakeVideo(1, "completed", "/dummy/path/video.mp4")
+    not_completed = FakeVideo(2, "error", "/dummy/path/other.mp4")
 
     # Мокаем session_scope и CRUD.
     saved = []
@@ -350,7 +351,7 @@ async def test_compose_and_save(tmp_path: Path, monkeypatch):
 
     def fake_create_video(db, path, **kwargs):
         saved.append({"path": path, "kwargs": kwargs})
-        return FakeVideo(len(saved) + 10, "composed")
+        return FakeVideo(len(saved) + 10, "composed", str(path))
 
     monkeypatch.setattr(processor_mod.db_crud, "create_video", fake_create_video)
 
