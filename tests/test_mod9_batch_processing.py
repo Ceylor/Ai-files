@@ -195,11 +195,14 @@ async def test_process_one_marks_completed(tmp_path: Path, monkeypatch):
     async def fake_set_status(video_id, status):
         statuses.append((video_id, status))
 
+    async def fake_editing(video_path, story):
+        return str(tmp_path / "out.mp4")
+
     monkeypatch.setattr(processor, "_run_ingest", fake_step)
     monkeypatch.setattr(processor, "_run_analysis", fake_step)
     monkeypatch.setattr(processor, "_find_pattern", fake_step)
     monkeypatch.setattr(processor, "_build_story", fake_step)
-    monkeypatch.setattr(processor, "_run_editing", lambda p, s: str(tmp_path / "out.mp4"))
+    monkeypatch.setattr(processor, "_run_editing", fake_editing)
     monkeypatch.setattr(processor, "_set_video_status", fake_set_status)
 
     await processor._process_one(video, folder_id=5)

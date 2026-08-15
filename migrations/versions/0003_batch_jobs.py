@@ -19,7 +19,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Добавляет таблицу batch_jobs и поле videos.batch_job_id (render_as_batch)."""
+    """Добавляет таблицу batch_jobs и поле videos.batch_job_id."""
     # Новая таблица пакетных задач.
     op.create_table(
         "batch_jobs",
@@ -34,7 +34,8 @@ def upgrade() -> None:
     )
 
     # Поле batch_job_id в videos (FK на batch_jobs.id).
-    with op.batch_alter_table("videos", render_as_batch=True) as batch_op:
+    # render_as_batch задаётся в env.py (для поддержки SQLite ALTER TABLE).
+    with op.batch_alter_table("videos") as batch_op:
         batch_op.add_column(sa.Column("batch_job_id", sa.Integer(), nullable=True))
         batch_op.create_foreign_key(
             "fk_videos_batch_job_id",
@@ -47,7 +48,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Удаляет поле videos.batch_job_id и таблицу batch_jobs."""
-    with op.batch_alter_table("videos", render_as_batch=True) as batch_op:
+    with op.batch_alter_table("videos") as batch_op:
         batch_op.drop_constraint("fk_videos_batch_job_id", type_="foreignkey")
         batch_op.drop_column("batch_job_id")
 
