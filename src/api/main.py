@@ -1,6 +1,6 @@
 """
 FastAPI Backend для AI AutoClip Pro 2.0
-Многослойный анализ контента, самообучение, категории, видео, монтаж.
+Многослойный анализ контента, самообучение, категории, видео, монтаж, пакетная обработка.
 """
 import json
 import asyncio
@@ -28,6 +28,7 @@ from src.modules.mod8_analysis.schemas import VideoAnalysisResult
 from src.database import init_db
 from src.database.session import get_db, session_scope
 from src.database import crud as db_crud
+from src.modules.mod9_batch_processing.processor import BatchProcessor
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger("api.main")
@@ -39,6 +40,7 @@ REF_DIR = DATA_DIR / "reference_clips"
 INPUT_DIR = DATA_DIR / "input"
 OUTPUT_DIR = DATA_DIR / "output"
 LEARNING_STORE_DIR = DATA_DIR / "learning_store"
+BATCH_OUTPUT_DIR = OUTPUT_DIR / "batch"
 
 
 @asynccontextmanager
@@ -60,6 +62,11 @@ app = FastAPI(title="AI AutoClip Pro - Multi-Category", lifespan=lifespan)
 learning_engine = LearningEngine(LEARNING_STORE_DIR)
 # Анализатор многослойного контента.
 analyzer = MultiLayerAnalyzer()
+# Оркестратор пакетной обработки (mod9).
+batch_processor = BatchProcessor(
+    work_dir=DATA_DIR / "batch_work",
+    output_dir=BATCH_OUTPUT_DIR,
+)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -166,6 +173,7 @@ def _video_to_dict(v) -> dict:
         "extra_metadata": v.extra_metadata,
         "analysis_results": v.analysis_results,
         "golden_moments": v.golden_moments,
+        "batch_job_id": v.batch_job_id,
     }
 
 
@@ -190,8 +198,9 @@ async def api_create_video(
 
 @app.get("/api/videos", response_model=dict)
 async def api_list_videos(category_id: Optional[int] = None, status: Optional[str] = None,
+                          batch_job_id: Optional[int] = None,
                           db: Session = Depends(get_db)):
-    videos = db_crud.list_videos(db, category_id=category_id, status=status)
+    videos = db_crud.list_videos(db, category_id=category_id, status=status, batch_job_id=batch_job_id)
     return {"videos": [_video_to_dict(v) for v in videos]}
 
 
@@ -632,6 +641,120 @@ async def run_full_pipeline_task(category: str):
         traceback.print_exc()
 
 
+# ==============================================================================
+# ПАКЕТНАЯ ОБРАБОТКА (модуль 9)
+# ==============================================================================
+def _batch_to_dict(b) -> dict:
+    return {
+        "id": b.id,
+        "folder_path": b.folder_path,
+        "status": b.status,
+        "total_videos": b.total_videos,
+        "processed_videos": b.processed_videos,
+        "created_at": b.created_at.isoformat() if b.created_at else None,
+        "finished_at": b.finished_at.isoformat() if b.finished_at else None,
+    }
+
+
+@app.post("/api/batch/upload_folder")
+async def api_batch_upload_folder(
+    folder_path: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Сканирует папку с видео, создаёт пакетную задачу (BatchJob) и
+    регистрирует найденные файлы как pending-записи Video.
+    """
+    folder = Path(folder_path)
+    if not folder.is_dir():
+        raise HTTPException(status_code=404, detail=f"Папка не найдена: {folder_path}")
+
+    video_exts = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
+    files = sorted([p for p in folder.iterdir() if p.suffix.lower() in video_exts])
+    if not files:
+        raise HTTPException(status_code=409, detail="В папке нет видеофайлов")
+
+    batch = db_crud.create_batch_job(db, str(folder), status="pending", total_videos=len(files))
+    created = []
+    for file in files:
+        try:
+            v = db_crud.create_video(
+                db,
+                str(file),
+                status="pending",
+                batch_job_id=batch.id,
+            )
+            created.append({"id": v.id, "file_path": v.file_path})
+        except ValueError:
+            # Дубликат пути — пропускаем.
+            logger.warning("Видео уже существует, пропуск: %s", file)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Не удалось зарегистрировать %s: %s", file, exc)
+
+    # Обновляем реальное число зарегистрированных видео.
+    db_crud.update_batch_job_status(db, batch.id, status="pending")
+    return {
+        "status": "created",
+        "batch_id": batch.id,
+        "folder_path": str(folder),
+        "total_videos": len(files),
+        "registered": len(created),
+    }
+
+
+@app.post("/api/batch/process/{folder_id}")
+async def api_batch_process(folder_id: int, db: Session = Depends(get_db)):
+    """Запускает пакетную обработку папки в фоне (BackgroundTasks)."""
+    batch = db_crud.get_batch_job(db, folder_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Пакетная задача не найдена")
+    if batch.status in ("processing", "completed"):
+        raise HTTPException(status_code=409, detail=f"Задача уже в статусе '{batch.status}'")
+
+    background_tasks = BackgroundTasks()
+    background_tasks.add_task(run_batch_task, folder_id)
+    return {
+        "status": "started",
+        "batch_id": folder_id,
+        "message": "Пакетная обработка запущена в фоне",
+    }
+
+
+async def run_batch_task(folder_id: int):
+    """Фоновая задача пакетной обработки."""
+    try:
+        await batch_processor.process_folder(folder_id)
+    except Exception as e:
+        await ws_manager.broadcast(f"❌ Ошибка пакетной обработки #{folder_id}: {e}")
+        logger.exception("Ошибка пакетной обработки #%s", folder_id)
+
+
+@app.get("/api/batch/status/{folder_id}")
+async def api_batch_status(folder_id: int, db: Session = Depends(get_db)):
+    """Возвращает статус пакетной задачи."""
+    batch = db_crud.get_batch_job(db, folder_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Пакетная задача не найдена")
+    return _batch_to_dict(batch)
+
+
+@app.get("/api/batch/results/{folder_id}")
+async def api_batch_results(folder_id: int, db: Session = Depends(get_db)):
+    """Возвращает видео и их статусы по пакетной задаче."""
+    batch = db_crud.get_batch_job(db, folder_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Пакетная задача не найдена")
+    videos = db_crud.list_videos(db, batch_job_id=folder_id)
+    return {
+        "batch_id": folder_id,
+        "status": batch.status,
+        "videos": [
+            {"id": v.id, "file_path": v.file_path, "status": v.status}
+            for v in videos
+        ],
+    }
+
+
 # --- СТАТУС ---
 
 @app.get("/api/status")
@@ -639,7 +762,12 @@ async def get_status(db: Session = Depends(get_db)):
     try:
         db_categories = db_crud.list_categories(db)
         db_videos = db_crud.list_videos(db)
-        db_summary = {"categories": len(db_categories), "videos": len(db_videos)}
+        db_batches = db_crud.list_batch_jobs(db)
+        db_summary = {
+            "categories": len(db_categories),
+            "videos": len(db_videos),
+            "batches": len(db_batches),
+        }
     except Exception as e:
         db_summary = {"error": str(e)}
     return {

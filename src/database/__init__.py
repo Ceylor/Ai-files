@@ -4,7 +4,7 @@
 Содержит:
     - base.py   — DeclarativeBase и общие миксины;
     - models.py — SQLAlchemy-модели (categories, videos, learning_patterns,
-                  processing_history, user_feedback, frame_embeddings);
+                  processing_history, user_feedback, frame_embeddings, batch_jobs);
     - session.py— engine, фабрика сессий, зависимость FastAPI;
     - crud.py   — базовые CRUD-операции.
 
@@ -20,6 +20,7 @@ from src.database.session import (
     session_scope,
 )
 from src.database.models import (  # noqa: F401  (регистрация моделей в метаданных)
+    BatchJob,
     Category,
     FrameEmbedding,
     LearningPattern,
@@ -41,4 +42,5 @@ __all__ = [
     "ProcessingHistory",
     "UserFeedback",
     "FrameEmbedding",
+    "BatchJob",
 ]

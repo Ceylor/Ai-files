@@ -7,7 +7,8 @@ SQLAlchemy 2.0 модели базы данных AI AutoClip Pro 2.0.
     learning_patterns   — паттерны, извлечённые из референсов (самообучение);
     processing_history  — история запусков монтажа;
     user_feedback       — оценки пользователя (для будущего дообучения);
-    frame_embeddings    — CLIP-эмбеддинги кадров (многослойный анализ).
+    frame_embeddings    — CLIP-эмбеддинги кадров (многослойный анализ);
+    batch_jobs          — пакетные задачи массовой обработки (mod9).
 
 Стиль: SQLAlchemy 2.0 (Mapped, mapped_column, relationship).
 Все JSON-поля хранятся как JSON (SQLite/PostgreSQL-совместимо через generic JSON).
@@ -92,12 +93,21 @@ class Video(Base, TimestampMixin):
     analysis_results: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     golden_moments: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
 
+    # --- пакетная обработка (mod9) ----------------------------------------
+    # Ссылка на пакетную задачу, в рамках которой обрабатывается видео.
+    batch_job_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("batch_jobs.id", ondelete="SET NULL"), nullable=True
+    )
+
     # --- отношения -------------------------------------------------------
     category: Mapped[Optional["Category"]] = relationship(back_populates="videos")
     patterns: Mapped[List["LearningPattern"]] = relationship(back_populates="video")
     feedback: Mapped[List["UserFeedback"]] = relationship(back_populates="video")
     embeddings: Mapped[List["FrameEmbedding"]] = relationship(
         back_populates="video", cascade="all, delete-orphan"
+    )
+    batch_job: Mapped[Optional["BatchJob"]] = relationship(
+        back_populates="videos", foreign_keys=[batch_job_id]
     )
 
     def __repr__(self) -> str:  # pragma: no cover
@@ -205,3 +215,34 @@ class FrameEmbedding(Base, TimestampMixin):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<FrameEmbedding id={self.id} video_id={self.video_id} t={self.timestamp}>"
+
+
+# ==============================================================================
+# 7. Пакетные задачи массовой обработки (mod9)
+# ==============================================================================
+class BatchJob(Base, TimestampMixin):
+    """Пакетная задача: папка с видео, обрабатываемая пакетно (mod9)."""
+
+    __tablename__ = "batch_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    folder_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), default="pending", nullable=False
+    )  # pending / processing / completed / error
+    total_videos: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    processed_videos: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # --- отношения -------------------------------------------------------
+    videos: Mapped[List["Video"]] = relationship(
+        back_populates="batch_job", foreign_keys="Video.batch_job_id"
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<BatchJob id={self.id} status={self.status!r} path={self.folder_path!r}>"

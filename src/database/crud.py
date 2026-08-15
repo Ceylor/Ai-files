@@ -1,14 +1,16 @@
 """
-Базовые CRUD-операции для работы с категориями, видео и анализом.
+Базовые CRUD-операции для работы с категориями, видео, анализом и пакетной обработкой.
 
 Реализованы как независимые функции, принимающие сессию SQLAlchemy —
 это позволяет использовать их как из FastAPI (через Depends(get_db)),
 так и из фоновых задач (через session_scope()).
 
 Функции покрывают:
-    Categories:        create/get/list/update/delete (+ получение подкатегорий).
-    Videos:            create/get/list/update_status/delete.
-    Анализ:            save_analysis_results, save_frame_embeddings, get_analysis.
+    Categories:   create/get/list/update/delete (+ получение подкатегорий).
+    Videos:       create/get/list/update_status/delete.
+    Анализ:       save_analysis_results, save_frame_embeddings, get_analysis.
+    BatchJobs:    create/update_status/update_progress/finish/get/list/
+                  get_pending_videos/get_by_folder.
 """
 from __future__ import annotations
 
@@ -19,7 +21,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.database.models import Category, FrameEmbedding, Video
+from src.database.models import BatchJob, Category, FrameEmbedding, Video
 
 logger = logging.getLogger("database.crud")
 
@@ -115,6 +117,7 @@ def create_video(
     duration: Optional[float] = None, resolution: Optional[str] = None,
     category_id: Optional[int] = None, status: str = "uploaded",
     extra_metadata: Optional[Dict[str, Any]] = None,
+    batch_job_id: Optional[int] = None,
 ) -> Video:
     """Создаёт запись о видеофайле. Бросает ValueError при дубликате пути."""
     if get_video_by_path(db, file_path) is not None:
@@ -125,6 +128,7 @@ def create_video(
     video = Video(
         file_path=file_path, duration=duration, resolution=resolution,
         category_id=category_id, status=status, extra_metadata=extra_metadata,
+        batch_job_id=batch_job_id,
     )
     db.add(video)
     db.commit()
@@ -145,6 +149,7 @@ def get_video_by_path(db: Session, file_path: str) -> Optional[Video]:
 
 def list_videos(
     db: Session, category_id: Optional[int] = None, status: Optional[str] = None,
+    batch_job_id: Optional[int] = None,
 ) -> List[Video]:
     """Список видео с опциональной фильтрацией по категории и статусу."""
     stmt = select(Video).order_by(Video.upload_date.desc())
@@ -152,6 +157,8 @@ def list_videos(
         stmt = stmt.where(Video.category_id == category_id)
     if status is not None:
         stmt = stmt.where(Video.status == status)
+    if batch_job_id is not None:
+        stmt = stmt.where(Video.batch_job_id == batch_job_id)
     return list(db.scalars(stmt))
 
 
@@ -266,3 +273,97 @@ def get_frame_embeddings(db: Session, video_id: int) -> List[Dict[str, Any]]:
         {"timestamp": r.timestamp, "embedding": r.embedding}
         for r in rows
     ]
+
+
+# ==============================================================================
+# ПАКЕТНАЯ ОБРАБОТКА (mod9)
+# ==============================================================================
+def create_batch_job(
+    db: Session, folder_path: str, *,
+    status: str = "pending", total_videos: int = 0,
+) -> BatchJob:
+    """Создаёт пакетную задачу для папки с видео."""
+    batch = BatchJob(
+        folder_path=folder_path,
+        status=status,
+        total_videos=total_videos,
+        processed_videos=0,
+    )
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+    logger.info("Создана пакетная задача id=%s (путь: %s)", batch.id, folder_path)
+    return batch
+
+
+def get_batch_job(db: Session, batch_id: int) -> Optional[BatchJob]:
+    """Возвращает пакетную задачу по id или None."""
+    return db.get(BatchJob, batch_id)
+
+
+def list_batch_jobs(
+    db: Session, status: Optional[str] = None,
+) -> List[BatchJob]:
+    """Список пакетных задач (опционально по статусу)."""
+    stmt = select(BatchJob).order_by(BatchJob.created_at.desc())
+    if status is not None:
+        stmt = stmt.where(BatchJob.status == status)
+    return list(db.scalars(stmt))
+
+
+def update_batch_job_status(
+    db: Session, batch_id: int, status: str,
+) -> Optional[BatchJob]:
+    """Обновляет статус пакетной задачи."""
+    batch = get_batch_job(db, batch_id)
+    if batch is None:
+        return None
+    batch.status = status
+    db.commit()
+    db.refresh(batch)
+    logger.info("Статус пакетной задачи обновлён: id=%s -> %s", batch_id, status)
+    return batch
+
+
+def update_batch_job_progress(
+    db: Session, batch_id: int, processed_videos: int,
+) -> Optional[BatchJob]:
+    """Обновляет счётчик обработанных видео пакетной задачи."""
+    batch = get_batch_job(db, batch_id)
+    if batch is None:
+        return None
+    batch.processed_videos = processed_videos
+    db.commit()
+    db.refresh(batch)
+    logger.info(
+        "Прогресс пакетной задачи id=%s: %d обработано", batch_id, processed_videos
+    )
+    return batch
+
+
+def finish_batch_job(
+    db: Session, batch_id: int, processed_videos: int, total_videos: int,
+    status: str = "completed",
+) -> Optional[BatchJob]:
+    """Завершает пакетную задачу: статус, счётчики и finished_at."""
+    batch = get_batch_job(db, batch_id)
+    if batch is None:
+        return None
+    batch.status = status
+    batch.processed_videos = processed_videos
+    batch.total_videos = total_videos
+    batch.finished_at = datetime.utcnow()
+    db.commit()
+    db.refresh(batch)
+    logger.info("Пакетная задача завершена: id=%s (%s)", batch_id, status)
+    return batch
+
+
+def get_batch_pending_videos(db: Session, batch_id: int) -> List[Video]:
+    """Возвращает видео пакетной задачи со статусом 'pending'."""
+    stmt = (
+        select(Video)
+        .where(Video.batch_job_id == batch_id, Video.status == "pending")
+        .order_by(Video.upload_date)
+    )
+    return list(db.scalars(stmt))

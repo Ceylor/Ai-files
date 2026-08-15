@@ -5,6 +5,34 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 проект придерживается [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.0] — Стадия 10: Массовая обработка и композиция (mod9_batch_processing)
+
+### Добавлено
+- **`src/modules/mod9_batch_processing/`** — новый модуль пакетной обработки:
+  - `composer.py` — `ClipComposer`: кластеризация фрагментов по средним CLIP-эмбеддингам (косинусное сходство, агломерация), `compose_clips()` создаёт несколько планов клипов, fallback `group_by_time()`;
+  - `processor.py` — `BatchProcessor`: асинхронная очередь `process_folder(folder_id)`, цепочка ingest→анализ→паттерны→сторибилдер→монтаж→экспорт, graceful shutdown через `_stop_event`;
+  - `__init__.py` — экспорт `ClipComposer`, `BatchProcessor`.
+- **БД**: таблица `batch_jobs` (folder_path, status, total_videos, processed_videos, created_at, finished_at) + поле `videos.batch_job_id` (FK, ON DELETE SET NULL).
+- **CRUD**: `create_batch_job`, `get_batch_job`, `list_batch_jobs`, `update_batch_job_status`, `update_batch_job_progress`, `finish_batch_job`, `get_batch_pending_videos`.
+- **Миграция** `0003_batch_jobs.py` (таблица batch_jobs + поле videos.batch_job_id, `render_as_batch=True`).
+- **REST API**:
+  - `POST /api/batch/upload_folder` — сканирование папки, создание BatchJob и pending-записей Video;
+  - `POST /api/batch/process/{folder_id}` — запуск пакетной обработки в фоне;
+  - `GET /api/batch/status/{folder_id}` — статус задачи;
+  - `GET /api/batch/results/{folder_id}` — видео и их статусы.
+- **`tests/test_mod9_batch_processing.py`** — тесты с моками (кластеризация, compose_clips, group_by_time, process_folder, graceful shutdown).
+- **`BATCH_PROCESSING.md`** — документация модуля.
+
+### Изменено
+- **`src/database/models.py`** — добавлены `BatchJob` и `Video.batch_job_id`.
+- **`src/database/crud.py`** — добавлены batch-функции; `create_video`/`list_videos` поддерживают `batch_job_id`.
+- **`src/database/__init__.py`** — импорт `BatchJob`.
+- **`src/api/main.py`** — добавлены batch-эндпоинты; `_video_to_dict` включает `batch_job_id`; `/api/status` считает batch_jobs.
+
+### Примечания
+- Полный монтаж в `BatchProcessor._run_editing` — временная заглушка (копирование исходника). Реальный монтаж через `run_pipeline` не подключён (отмечено в коде).
+- Интеграция созданных композиций с БД (куда сохранять клипы) будет реализована на следующем этапе.
+
 ## [0.4.0] — Стадия 9: Многослойный анализ контента (mod8_analysis)
 
 ### Добавлено
