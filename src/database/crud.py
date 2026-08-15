@@ -1,13 +1,14 @@
 """
-Базовые CRUD-операции для работы с категориями и видео.
+Базовые CRUD-операции для работы с категориями, видео и анализом.
 
 Реализованы как независимые функции, принимающие сессию SQLAlchemy —
 это позволяет использовать их как из FastAPI (через Depends(get_db)),
 так и из фоновых задач (через session_scope()).
 
 Функции покрывают:
-    Categories: create/get/list/update/delete (+ получение подкатегорий).
-    Videos:     create/get/list/update_status/delete.
+    Categories:        create/get/list/update/delete (+ получение подкатегорий).
+    Videos:            create/get/list/update_status/delete.
+    Анализ:            save_analysis_results, save_frame_embeddings, get_analysis.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.database.models import Category, Video
+from src.database.models import Category, FrameEmbedding, Video
 
 logger = logging.getLogger("database.crud")
 
@@ -57,15 +58,7 @@ def get_category_by_name(db: Session, name: str) -> Optional[Category]:
 def list_categories(
     db: Session, parent_id: Optional[int] = None, include_root: bool = False,
 ) -> List[Category]:
-    """
-    Список категорий.
-
-    Args:
-        parent_id: если указан — только подкатегории данного parent;
-            иначе все категории.
-        include_root: включать ли категории без parent (корневые) при
-            filter по parent_id.
-    """
+    """Список категорий (опционально по родителю)."""
     stmt = select(Category).order_by(Category.name)
     if parent_id is not None:
         if include_root and parent_id is None:
@@ -188,3 +181,88 @@ def delete_video(db: Session, video_id: int) -> bool:
     db.commit()
     logger.info("Видео удалено: id=%s", video_id)
     return True
+
+
+# ==============================================================================
+# АНАЛИЗ (многослойный)
+# ==============================================================================
+def save_analysis_results(
+    db: Session, video_id: int,
+    analysis: Dict[str, Any], golden_moments: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[Video]:
+    """
+    Сохраняет результаты многослойного анализа в запись Video.
+
+    Обновляет поля analysis_results и golden_moments, а также статус на "analyzed".
+
+    Returns:
+        Video или None, если видео не найдено.
+    """
+    video = get_video(db, video_id)
+    if video is None:
+        return None
+    video.analysis_results = analysis
+    video.golden_moments = golden_moments or []
+    video.status = "analyzed"
+    db.commit()
+    db.refresh(video)
+    logger.info("Результаты анализа сохранены для видео id=%s", video_id)
+    return video
+
+
+def save_frame_embeddings(
+    db: Session, video_id: int, embeddings: List[Dict[str, Any]],
+) -> int:
+    """
+    Сохраняет CLIP-эмбеддинги кадров в таблицу frame_embeddings.
+
+    Args:
+        embeddings: список dict [{"timestamp": float, "embedding": [..]}, ...]
+
+    Returns:
+        Число сохранённых эмбеддингов.
+    """
+    if get_video(db, video_id) is None:
+        logger.warning("Видео id=%s не найдено, эмбеддинги не сохранены", video_id)
+        return 0
+
+    # Очищаем старые эмбеддинги видео.
+    db.query(FrameEmbedding).filter(FrameEmbedding.video_id == video_id).delete()
+    db.flush()
+
+    saved = 0
+    for item in embeddings:
+        db.add(FrameEmbedding(
+            video_id=video_id,
+            timestamp=float(item.get("timestamp", 0.0)),
+            embedding=item.get("embedding"),
+        ))
+        saved += 1
+    db.commit()
+    logger.info("Сохранено эмбеддингов для видео id=%s: %d", video_id, saved)
+    return saved
+
+
+def get_analysis(db: Session, video_id: int) -> Optional[Dict[str, Any]]:
+    """Возвращает результаты анализа видео (analysis_results + golden_moments)."""
+    video = get_video(db, video_id)
+    if video is None:
+        return None
+    return {
+        "analysis_results": video.analysis_results,
+        "golden_moments": video.golden_moments,
+    }
+
+
+def get_frame_embeddings(db: Session, video_id: int) -> List[Dict[str, Any]]:
+    """Возвращает эмбеддинги кадров видео."""
+    rows = (
+        db.query(FrameEmbedding)
+        .filter(FrameEmbedding.video_id == video_id)
+        .order_by(FrameEmbedding.timestamp)
+        .all()
+    )
+    return [
+        {"timestamp": r.timestamp, "embedding": r.embedding}
+        for r in rows
+    ]

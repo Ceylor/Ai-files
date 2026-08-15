@@ -6,7 +6,8 @@ SQLAlchemy 2.0 модели базы данных AI AutoClip Pro 2.0.
     videos              — загруженные видеофайлы;
     learning_patterns   — паттерны, извлечённые из референсов (самообучение);
     processing_history  — история запусков монтажа;
-    user_feedback       — оценки пользователя (для будущего дообучения).
+    user_feedback       — оценки пользователя (для будущего дообучения);
+    frame_embeddings    — CLIP-эмбеддинги кадров (многослойный анализ).
 
 Стиль: SQLAlchemy 2.0 (Mapped, mapped_column, relationship).
 Все JSON-поля хранятся как JSON (SQLite/PostgreSQL-совместимо через generic JSON).
@@ -65,7 +66,7 @@ class Category(Base, TimestampMixin):
 # 2. Видеофайлы
 # ==============================================================================
 class Video(Base, TimestampMixin):
-    """Загруженный видеофайл с метаданными."""
+    """Загруженный видеофайл с метаданными и результатами анализа."""
 
     __tablename__ = "videos"
     __table_args__ = (UniqueConstraint("file_path", name="uq_videos_file_path"),)
@@ -87,10 +88,17 @@ class Video(Base, TimestampMixin):
     # зарезервировано в Declarative API SQLAlchemy.
     extra_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
 
+    # --- результаты многослойного анализа (JSON) -------------------------
+    analysis_results: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    golden_moments: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+
     # --- отношения -------------------------------------------------------
     category: Mapped[Optional["Category"]] = relationship(back_populates="videos")
     patterns: Mapped[List["LearningPattern"]] = relationship(back_populates="video")
     feedback: Mapped[List["UserFeedback"]] = relationship(back_populates="video")
+    embeddings: Mapped[List["FrameEmbedding"]] = relationship(
+        back_populates="video", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Video id={self.id} path={self.file_path!r}>"
@@ -175,3 +183,25 @@ class UserFeedback(Base, TimestampMixin):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<UserFeedback id={self.id} video_id={self.video_id} rating={self.rating}>"
+
+
+# ==============================================================================
+# 6. CLIP-эмбеддинги кадров (многослойный анализ)
+# ==============================================================================
+class FrameEmbedding(Base, TimestampMixin):
+    """CLIP-эмбеддинг кадра видео (для поиска/кластеризации по смыслу)."""
+
+    __tablename__ = "frame_embeddings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    video_id: Mapped[int] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE"), nullable=False
+    )
+    timestamp: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(JSON, nullable=True)
+
+    # --- отношения -------------------------------------------------------
+    video: Mapped["Video"] = relationship(back_populates="embeddings")
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<FrameEmbedding id={self.id} video_id={self.video_id} t={self.timestamp}>"
