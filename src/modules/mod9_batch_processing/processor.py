@@ -9,13 +9,16 @@
 stop_event и корректно завершает работу.
 
 Интеграция с БД: обновляет статус batch_jobs и videos через CRUD-функции.
+После обработки всех видео выполняется композиция клипов по CLIP-эмбеддингам
+(ClipComposer) с сохранением результата в БД (новые записи videos).
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from src.utils.logger import ws_manager
 from src.database.session import session_scope
@@ -56,6 +59,8 @@ class BatchProcessor:
         Обрабатывает все "pending" видео пакетной задачи.
 
         Обновляет статус batch_job: processing → completed/error.
+        После обработки всех видео выполняет композицию клипов и сохраняет
+        результат в БД.
         """
         await self._broadcast(f"🚀 Запуск пакетной обработки задачи #{folder_id}")
         await self._set_batch_status(folder_id, "processing")
@@ -78,6 +83,10 @@ class BatchProcessor:
                     logger.exception("Ошибка обработки видео %s", video.get("id"))
                     await self._broadcast(f"  ❌ Ошибка видео {video.get('id')}: {exc}")
                     await self._set_video_status(video.get("id"), "error")
+
+            # Доработка 2: композиция клипов и сохранение в БД.
+            if not self._stop_event.is_set():
+                await self._compose_and_save(folder_id)
 
             await self._finish_batch(folder_id, processed, total)
             return {"folder_id": folder_id, "processed": processed, "total": total}
@@ -181,20 +190,106 @@ class BatchProcessor:
     async def _run_editing(
         self, video_path: Path, story: Optional[Dict[str, Any]]
     ) -> str:
-        """Монтаж и экспорт (обёртка над основным пайплайном)."""
-        # Для простоты и устойчивости копируем исходник в output (заглушка),
-        # реальный монтаж выполняется через run_pipeline (см. mod1..mod6).
+        """
+        Реальный монтаж видео через VideoPipeline (модули mod1..mod6).
+
+        Использует тот же полный конвейер, что и run_pipeline, но для одного
+        видео. При сбое — graceful fallback на копирование исходника.
+        """
         output = self.output_dir / f"{video_path.stem}_clip.mp4"
         try:
-            import shutil
+            from src.core.config_loader import load_config
+            from src.core.pipeline import VideoPipeline
 
+            config = load_config()
+            pipeline = VideoPipeline(config)
+            output_files = await pipeline.process_batch(
+                [video_path],
+                style_profile=None,
+                category=self.category,
+            )
+            if output_files:
+                await self._broadcast(f"    🎬 Клип смонтирован: {output_files[0].name}")
+                return str(output_files[0])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Реальный монтаж не удался (%s), fallback-копия", exc)
+
+        # Fallback: копируем исходник в output, чтобы не ронять задачу.
+        try:
             shutil.copy2(str(video_path), str(output))
-            await self._broadcast(f"    🎬 Клип сохранён: {output.name}")
+            await self._broadcast(f"    🎬 Клип сохранён (копия): {output.name}")
+            return str(output)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Экспорт (fallback-копия) не удался: %s", exc)
-            # Возвращаем исходный путь, чтобы не ронять задачу.
-            output = video_path
-        return str(output)
+            return str(video_path)
+
+    # ------------------------------------------------------------------ композиция
+    async def _compose_and_save(self, folder_id: int) -> None:
+        """
+        Композиция клипов по CLIP-эмбеддингам обработанных видео и сохранение
+        созданных клипов в БД (новые записи videos со статусом 'composed',
+        привязанные к batch_job).
+        """
+        try:
+            await self._broadcast("🧩 Композиция клипов по CLIP-эмбеддингам...")
+            fragments: List[Dict[str, Any]] = []
+            with session_scope() as db:
+                videos = db_crud.list_videos(db, batch_job_id=folder_id)
+                for v in videos:
+                    if v.status != "completed":
+                        continue
+                    # Выходной путь клипа.
+                    output_path = self.output_dir / f"{Path(v.file_path).stem}_clip.mp4"
+                    embeddings = db_crud.get_frame_embeddings(db, v.id)
+                    emb = None
+                    if embeddings:
+                        emb = embeddings[0].get("embedding")
+                    fragments.append({
+                        "video_id": v.id,
+                        "path": str(output_path),
+                        "embedding": emb,
+                    })
+
+            if not fragments:
+                await self._broadcast("  ⚠️  Нет обработанных видео для композиции")
+                return
+
+            plans = self.composer.compose_clips(
+                fragments,
+                output_dir=self.output_dir,
+                prefix="composed",
+            )
+            await self._broadcast(f"  💡 Создано композиций: {len(plans)}")
+
+            with session_scope() as db:
+                for plan in plans:
+                    out_path = plan.get("output_path")
+                    if not out_path:
+                        continue
+                    try:
+                        db_crud.create_video(
+                            db,
+                            str(out_path),
+                            status="composed",
+                            category_id=None,
+                            batch_job_id=folder_id,
+                            extra_metadata={
+                                "kind": "composed",
+                                "plan_index": plan.get("index"),
+                                "name": plan.get("name"),
+                                "source_video_ids": [
+                                    f.get("video_id") for f in plan.get("fragments", [])
+                                ],
+                            },
+                        )
+                    except ValueError:
+                        logger.warning("Композиция уже существует, пропуск: %s", out_path)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("Не удалось сохранить композицию %s: %s", out_path, exc)
+            await self._broadcast("✅ Композиции сохранены в БД")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Сбой композиции %s", folder_id)
+            await self._broadcast(f"❌ Ошибка композиции: {exc}")
 
     # ------------------------------------------------------------------ БД-операции
     def _get_pending_videos(self, folder_id: int) -> list:

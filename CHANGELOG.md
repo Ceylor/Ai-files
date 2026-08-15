@@ -5,6 +5,20 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 проект придерживается [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.5.1] — Доработки модуля 9: реальный монтаж и сохранение композиций
+
+### Изменено
+- **`src/modules/mod9_batch_processing/processor.py`**:
+  - `_run_editing` — **реальный монтаж** через `VideoPipeline.process_batch` (модули mod1–mod6) вместо копирования исходника; при сбое — graceful fallback на копирование;
+  - добавлен `_compose_and_save(folder_id)` — композиция клипов по CLIP-эмбеддингам обработанных видео (`ClipComposer.compose_clips`) и сохранение результата в БД как новых записей `videos` (статус `composed`, привязка к `batch_job_id`);
+  - `process_folder` вызывает `_compose_and_save` после обработки всех видео (кроме случая graceful shutdown).
+- **`tests/test_mod9_batch_processing.py`** — добавлены тесты реального монтажа (`test_run_editing_uses_pipeline`), fallback-копии (`test_run_editing_fallback_copy`), сохранения композиций (`test_compose_and_save`).
+- **`BATCH_PROCESSING.md`** — актуализирована документация (реальный монтаж, композиция и сохранение в БД).
+
+### Примечания
+- Реальный монтаж выполняется тем же полным конвейером `VideoPipeline`, что и `run_pipeline`.
+- Композиции сохраняются в `videos` со статусом `composed`; в `extra_metadata` хранится `{kind, name, source_video_ids}`.
+
 ## [0.5.0] — Стадия 10: Массовая обработка и композиция (mod9_batch_processing)
 
 ### Добавлено
@@ -14,7 +28,7 @@
   - `__init__.py` — экспорт `ClipComposer`, `BatchProcessor`.
 - **БД**: таблица `batch_jobs` (folder_path, status, total_videos, processed_videos, created_at, finished_at) + поле `videos.batch_job_id` (FK, ON DELETE SET NULL).
 - **CRUD**: `create_batch_job`, `get_batch_job`, `list_batch_jobs`, `update_batch_job_status`, `update_batch_job_progress`, `finish_batch_job`, `get_batch_pending_videos`.
-- **Миграция** `0003_batch_jobs.py` (таблица batch_jobs + поле videos.batch_job_id, `render_as_batch=True`).
+- **Миграция** `0003_batch_jobs.py` (таблица batch_jobs + поле videos.batch_job_id).
 - **REST API**:
   - `POST /api/batch/upload_folder` — сканирование папки, создание BatchJob и pending-записей Video;
   - `POST /api/batch/process/{folder_id}` — запуск пакетной обработки в фоне;
@@ -28,10 +42,6 @@
 - **`src/database/crud.py`** — добавлены batch-функции; `create_video`/`list_videos` поддерживают `batch_job_id`.
 - **`src/database/__init__.py`** — импорт `BatchJob`.
 - **`src/api/main.py`** — добавлены batch-эндпоинты; `_video_to_dict` включает `batch_job_id`; `/api/status` считает batch_jobs.
-
-### Примечания
-- Полный монтаж в `BatchProcessor._run_editing` — временная заглушка (копирование исходника). Реальный монтаж через `run_pipeline` не подключён (отмечено в коде).
-- Интеграция созданных композиций с БД (куда сохранять клипы) будет реализована на следующем этапе.
 
 ## [0.4.0] — Стадия 9: Многослойный анализ контента (mod8_analysis)
 
