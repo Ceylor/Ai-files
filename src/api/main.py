@@ -702,6 +702,13 @@ async def api_batch_upload_folder(
     }
 
 
+@app.get("/api/batch/list")
+async def api_batch_list(status: Optional[str] = None, db: Session = Depends(get_db)):
+    """Возвращает список пакетных задач (опционально по статусу)."""
+    batches = db_crud.list_batch_jobs(db, status=status)
+    return {"tasks": [_batch_to_dict(b) for b in batches]}
+
+
 @app.post("/api/batch/process/{folder_id}")
 async def api_batch_process(folder_id: int, db: Session = Depends(get_db)):
     """Запускает пакетную обработку папки в фоне (BackgroundTasks)."""

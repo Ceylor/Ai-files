@@ -5,6 +5,32 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 проект придерживается [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.6.0] — Стадия 11: Веб-интерфейс на Next.js (приоритет №5)
+
+### Добавлено
+- **`frontend/`** — новый Next.js (App Router) + Tailwind CSS фронтенд:
+  - `Дашборд` — статистика (видео, клипы, композиции, активные задачи), последние задачи;
+  - `Задачи` — загрузка папки (POST /api/batch/upload_folder), список batch_jobs с фильтром по статусу, детали задачи с прогрессом, списком видео и запуском обработки (POST /api/batch/process/{id}), авто-обновление (polling) во время обработки;
+  - `Результаты` — список клипов (completed/composed) со встроенным видео-плеером и скачиванием;
+  - `Категории` — CRUD для категорий;
+  - `Обучение` — запуск самообучения (POST /api/learning/train), статус обучения;
+  - `Настройки` — параметры обработки;
+  - тёмная тема (переключение через `useTheme`), адаптивный сайдбар, бейджи статусов.
+- **`src/api/main.py`** — новый эндпоинт `GET /api/batch/list` (список batch_jobs, опционально по статусу) для дашборда и списка задач.
+- **`frontend/README.md`** — документация и инструкция по запуску.
+
+### Компоненты фронтенда
+- `app/` — страницы: `page.js` (дашборд), `tasks/`, `results/`, `categories/`, `learning/`, `settings/`.
+- `components/` — `Layout`, `Sidebar`, `Card`, `Button`, `StatusBadge`, `VideoPlayer`, `UploadFolderForm`, `BatchDetails`.
+- `lib/` — `api.js` (клиент REST), `useTheme.js` (тёмная тема).
+
+### Изменено
+- **`src/api/main.py`** — добавлен `GET /api/batch/list`.
+
+### Примечания
+- Фронтенд проксирует `/api/*` на бэкенд FastAPI (`http://127.0.0.1:8000`) через rewrites в `next.config.js`.
+- Запуск: `cd frontend && npm install && npm run dev` (порт 3000).
+
 ## [0.5.1] — Доработки модуля 9: реальный монтаж и сохранение композиций
 
 ### Изменено
