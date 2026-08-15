@@ -1,63 +1,66 @@
 @echo off
 chcp 65001 >nul
-title AI AutoClip Pro 2.0 - Start
+title AI AutoClip Pro 2.0
 cd /d "%~dp0"
 
 echo ============================================================
-echo   AI AutoClip Pro 2.0 - Startup
+echo   AI AutoClip Pro 2.0 - Startup (single window)
+echo   Backend:  http://127.0.0.1:8000
+echo   Frontend: http://localhost:3000
+echo   (Browser will NOT be opened automatically)
 echo ============================================================
 echo.
 
 REM ===== Check virtual environment =====
-if exist "venv\Scripts\activate.bat" goto :venv_ok
+if exist "venv\Scripts\activate.bat" goto venv_ok
 echo [!] Virtual environment not found.
 echo     Expected: venv\Scripts\activate.bat
 echo.
-echo [!] Please run install_deps.bat first to install dependencies.
+echo [!] Please run install_deps.bat first.
 echo.
 pause
 exit /b 1
 
 :venv_ok
 REM ===== Check frontend dependencies =====
-if exist "frontend\node_modules" goto :frontend_ok
+if exist "frontend\node_modules" goto frontend_ok
 echo [!] Frontend dependencies not found.
 echo     Expected: frontend\node_modules
 echo.
-echo [!] Please run install_deps.bat first to install dependencies.
+echo [!] Please run install_deps.bat first.
 echo.
 pause
 exit /b 1
 
 :frontend_ok
-REM ===== 1. Start backend =====
-echo [1/3] Starting backend (FastAPI)...
-echo       Backend will be at http://127.0.0.1:8000
+echo [1/2] Starting backend (FastAPI) in background...
+echo       Logs: logs\backend.log
 echo.
-start "Backend" cmd /k "cd /d %~dp0 && call venv\Scripts\activate.bat && alembic upgrade head && python -m uvicorn src.api.main:app --reload --host 127.0.0.1 --port 8000"
 
-REM ===== 2. Wait 3 seconds =====
-echo [2/3] Waiting 3 seconds for backend...
-ping -n 4 127.0.0.1 >nul
+REM Create logs dir if missing
+if not exist "logs" mkdir logs
 
-REM ===== 3. Start frontend =====
-echo [3/3] Starting frontend (Next.js)...
-echo       Frontend will be at http://localhost:3000
+REM Run migrations then backend, both in this same window.
+call venv\Scripts\activate.bat
+call alembic upgrade head > logs\migrations.log 2>&1
+start "AI-AutoClip-Backend" /b cmd /c "call venv\Scripts\activate.bat && python -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000 > logs\backend.log 2>&1"
+
+echo [2/2] Starting frontend (Next.js) in background...
+echo       Logs: logs\frontend.log
 echo.
-start "Frontend" cmd /k "cd /d %~dp0frontend && npm run dev"
-
-REM ===== Open browser =====
-echo Opening browser at http://localhost:3000 ...
-ping -n 4 127.0.0.1 >nul
-start http://localhost:3000
+start "AI-AutoClip-Frontend" /b cmd /c "cd /d %~dp0frontend && npm run dev > ..\logs\frontend.log 2>&1"
 
 echo.
 echo ============================================================
-echo   System is running:
-echo   - Backend:  http://127.0.0.1:8000
-echo   - Frontend: http://localhost:3000
+echo   System is starting...
+echo   - Backend:  http://127.0.0.1:8000  (logs\backend.log)
+echo   - Frontend: http://localhost:3000  (logs\frontend.log)
+echo.
+echo   Press Ctrl+C in this window to stop both processes.
+echo   This window must stay open while the system is running.
 echo ============================================================
 echo.
-echo   Close the "Backend" and "Frontend" windows to stop.
-echo.
-pause
+
+:loop
+timeout /t 2 >nul
+goto loop
