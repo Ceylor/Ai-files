@@ -1,18 +1,51 @@
-# Environment variables
+# ===== Environment =====
 .env
+.env.local
+.env*.local
 
-# Python
+# ===== Python =====
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
 venv/
 .venv/
+*.whl
 
-# Data directories
+# ===== Data (временные данные) =====
+data/
 data/input/
 data/output/
 data/temp/
 data/music_library/
+data/reference_clips/
+data/raw/
+!data/.gitkeep
 
-# Token cache
+# ===== Logs =====
+logs/
+*.log
+
+# ===== Frontend (Node.js) =====
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+
+# ===== FFmpeg / прочие артефакты =====
+ffmpeg_bin/
+ffmpeg.zip/
+ffmpeg_temp/
+.ffmpeg_path
+
+# ===== Token cache =====
 data/temp/gigachat_token.json
+
+# ===== IDE / OS =====
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
