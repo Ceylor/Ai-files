@@ -6,12 +6,12 @@ export default function Card({ title, subtitle, children, className = "" }) {
       {(title || subtitle) && (
         <div className="mb-4">
           {title && (
-            <h2 className="font-display text-lg font-semibold text-slate-100">
+            <h2 className="font-display text-lg font-semibold text-[var(--heading)]">
               {title}
             </h2>
           )}
           {subtitle && (
-            <p className="mt-0.5 text-sm text-slate-400">{subtitle}</p>
+            <p className="mt-0.5 text-sm text-[var(--text-muted)]">{subtitle}</p>
           )}
         </div>
       )}

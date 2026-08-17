@@ -56,11 +56,7 @@ export default function BatchDetails({ batchId }) {
 
   if (!batchId) return null;
   if (loading)
-    return (
-      <div className="py-10 text-center text-slate-400">
-        Загрузка деталей...
-      </div>
-    );
+    return <div className="py-10 text-center text-[var(--text-muted)]">Загрузка деталей...</div>;
 
   const percent =
     status && status.total_videos
@@ -72,14 +68,12 @@ export default function BatchDetails({ batchId }) {
 
   return (
     <Card title={`Задача #${batchId}`} subtitle={status?.folder_path || ""}>
-      {error && (
-        <p className="mb-3 text-sm text-red-400">{error}</p>
-      )}
+      {error && <p className="mb-3 text-sm text-red-500 dark:text-red-400">{error}</p>}
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <StatusBadge status={status?.status} />
-          <span className="text-sm text-slate-300">
+          <span className="text-sm text-[var(--text-muted)]">
             {status?.processed_videos ?? 0}/{status?.total_videos ?? 0} обработано
           </span>
         </div>
@@ -92,11 +86,11 @@ export default function BatchDetails({ batchId }) {
 
       {/* Прогресс */}
       <div className="mt-4">
-        <div className="mb-1 flex justify-between text-xs text-slate-400">
+        <div className="mb-1 flex justify-between text-xs text-[var(--text-muted)]">
           <span>Прогресс</span>
           <span>{percent}%</span>
         </div>
-        <div className="h-3 w-full overflow-hidden rounded-full bg-white/5 ring-1 ring-white/10">
+        <div className="h-3 w-full overflow-hidden rounded-full bg-black/5 ring-1 ring-black/10 dark:bg-white/5 dark:ring-white/10">
           <motion.div
             className="h-full rounded-full bg-gradient-to-r from-neon-cyan via-neon-violet to-neon-fuchsia shadow-neon-cyan"
             initial={{ width: 0 }}
@@ -108,11 +102,9 @@ export default function BatchDetails({ batchId }) {
 
       {/* Список видео */}
       <div className="mt-5">
-        <h3 className="mb-2 text-sm font-semibold text-slate-200">
-          Видео в задаче
-        </h3>
+        <h3 className="mb-2 text-sm font-semibold text-[var(--text)]">Видео в задаче</h3>
         {!results?.videos?.length ? (
-          <p className="text-sm text-slate-400">Видео не найдены</p>
+          <p className="text-sm text-[var(--text-muted)]">Видео не найдены</p>
         ) : (
           <div className="max-h-80 space-y-2 overflow-y-auto">
             {results.videos.map((v) => (
@@ -121,10 +113,8 @@ export default function BatchDetails({ batchId }) {
                 className="glass flex items-center justify-between rounded-xl px-3 py-2 transition-all hover:shadow-neon-cyan"
               >
                 <div className="min-w-0">
-                  <div className="truncate text-sm text-slate-200">
-                    {v.file_path}
-                  </div>
-                  <div className="text-xs text-slate-400">id: {v.id}</div>
+                  <div className="truncate text-sm text-[var(--text)]">{v.file_path}</div>
+                  <div className="text-xs text-[var(--text-muted)]">id: {v.id}</div>
                 </div>
                 <StatusBadge status={v.status} />
               </div>

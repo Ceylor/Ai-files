@@ -69,14 +69,14 @@ export default function LearningPage() {
 
         {error && (
           <motion.div variants={item}>
-            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-300">
               {error}
             </div>
           </motion.div>
         )}
         {message && (
           <motion.div variants={item}>
-            <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-300">
+            <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-300">
               {message}
             </div>
           </motion.div>
@@ -86,13 +86,11 @@ export default function LearningPage() {
           <Card title="Запустить обучение" subtitle="Самообучение на референсных клипах категории">
             <form onSubmit={handleTrain} className="space-y-3">
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-300">
-                  Категория
-                </label>
+                <label className="mb-1 block text-sm font-medium text-[var(--text)]">Категория</label>
                 <select
                   value={selectedCategory}
                   onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="glass w-full rounded-xl border border-white/10 px-3 py-2 text-sm text-white focus:border-neon-cyan focus:outline-none"
+                  className="glass w-full rounded-xl border border-[var(--input-border)] px-3 py-2 text-sm text-[var(--text)] focus:border-neon-cyan focus:outline-none"
                 >
                   {categories.length === 0 ? (
                     <option value="default">default</option>
@@ -113,11 +111,11 @@ export default function LearningPage() {
         <motion.div variants={item}>
           <Card className="mt-6" title="Статус обучения">
             {learningStatus ? (
-              <pre className="glass whitespace-pre-wrap rounded-xl p-4 text-sm text-slate-300">
+              <pre className="glass whitespace-pre-wrap rounded-xl p-4 text-sm text-[var(--text)]">
                 {JSON.stringify(learningStatus, null, 2)}
               </pre>
             ) : (
-              <p className="text-sm text-slate-400">Данных пока нет</p>
+              <p className="text-sm text-[var(--text-muted)]">Данных пока нет</p>
             )}
           </Card>
         </motion.div>
@@ -126,12 +124,12 @@ export default function LearningPage() {
           <Card className="mt-6" title="Обученные категории">
             <div className="flex flex-wrap gap-2">
               {categories.length === 0 ? (
-                <p className="text-sm text-slate-400">Нет обученных категорий</p>
+                <p className="text-sm text-[var(--text-muted)]">Нет обученных категорий</p>
               ) : (
                 categories.map((c) => (
                   <span
                     key={c}
-                    className="rounded-full border border-neon-violet/30 bg-neon-violet/15 px-3 py-1 text-sm font-medium text-violet-300 shadow-neon-violet"
+                    className="rounded-full border border-violet-300 bg-violet-100 px-3 py-1 text-sm font-medium text-violet-700 dark:border-neon-violet/30 dark:bg-neon-violet/15 dark:text-violet-300"
                   >
                     {c}
                   </span>

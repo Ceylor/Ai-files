@@ -8,7 +8,7 @@ export default function Layout({ children }) {
   const { theme, toggle } = useTheme();
 
   return (
-    <div className="relative min-h-screen bg-night-950">
+    <div className="relative min-h-screen bg-[var(--bg)]">
       {/* Фоновые hi-tech эффекты */}
       <BackgroundFX />
 

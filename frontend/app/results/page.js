@@ -97,13 +97,13 @@ export default function ResultsPage() {
             <h1 className="text-neon-gradient font-display text-4xl font-bold">
               Результаты
             </h1>
-            <p className="mt-2 text-sm text-slate-400">
+            <p className="mt-2 text-sm text-[var(--text-muted)]">
               Созданные клипы и композиции с визуальным таймлайном
             </p>
           </div>
           <button
             onClick={loadVideos}
-            className="glass rounded-xl px-5 py-2.5 text-sm font-medium text-slate-200 transition-all hover:shadow-neon-cyan hover:-translate-y-0.5"
+            className="glass rounded-xl px-5 py-2.5 text-sm font-medium text-[var(--text)] transition-all hover:shadow-neon-cyan hover:-translate-y-0.5"
           >
             🔄 Обновить
           </button>
@@ -111,7 +111,7 @@ export default function ResultsPage() {
 
         {error && (
           <motion.div variants={item}>
-            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-300">
               Ошибка: {error}
             </div>
           </motion.div>
@@ -129,7 +129,7 @@ export default function ResultsPage() {
               className={`rounded-full px-4 py-1.5 text-sm font-medium transition-all ${
                 filter === f.value
                   ? "bg-gradient-to-r from-neon-cyan to-neon-violet text-white shadow-neon-cyan"
-                  : "glass text-slate-300 hover:shadow-neon-cyan"
+                  : "glass text-[var(--text)] hover:shadow-neon-cyan"
               }`}
             >
               {f.label}
@@ -143,7 +143,7 @@ export default function ResultsPage() {
           </div>
         ) : filtered.length === 0 ? (
           <Card>
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-[var(--text-muted)]">
               Клипов пока нет. Обработайте задачу — результаты появятся здесь.
             </p>
           </Card>
@@ -154,10 +154,10 @@ export default function ResultsPage() {
                 <Card>
                   <div className="mb-3 flex items-start justify-between">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-slate-200">
+                      <div className="truncate text-sm font-medium text-[var(--text)]">
                         {v.file_path.split("/").pop()}
                       </div>
-                      <div className="text-xs text-slate-400">id: {v.id}</div>
+                      <div className="text-xs text-[var(--text-muted)]">id: {v.id}</div>
                     </div>
                     <StatusBadge status={v.status} />
                   </div>
@@ -165,7 +165,7 @@ export default function ResultsPage() {
                   <VideoPlayer src={srcFor(v)} title={v.file_path.split("/").pop()} />
 
                   <div className="mt-3">
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
                       Таймлайн
                     </div>
                     <Timeline
@@ -180,7 +180,7 @@ export default function ResultsPage() {
                     </a>
                     <button
                       onClick={() => setSelected(v)}
-                      className="glass rounded-xl px-4 py-2 text-sm text-slate-300 transition-all hover:shadow-neon-cyan"
+                      className="glass rounded-xl px-4 py-2 text-sm text-[var(--text)] transition-all hover:shadow-neon-cyan"
                     >
                       Анализ
                     </button>
@@ -188,7 +188,7 @@ export default function ResultsPage() {
 
                   {selected?.id === v.id && (
                     <div className="glass mt-3 rounded-xl p-3 text-xs">
-                      <pre className="whitespace-pre-wrap text-slate-300">
+                      <pre className="whitespace-pre-wrap text-[var(--text)]">
                         {JSON.stringify(
                           v.analysis_results || v.extra_metadata || {},
                           null,

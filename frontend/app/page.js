@@ -31,11 +31,13 @@ const STATUS_COLORS = {
   uploaded: "#94a3b8",
 };
 
+const BAR_COLORS = ["#00e5ff", "#8a2eff", "#d946ef", "#fbbf24"];
+
 const STAT_CARDS = [
   { key: "total", label: "Всего видео", icon: "🎞️", accent: "text-neon-cyan", glow: "shadow-neon-cyan" },
-  { key: "done", label: "Клипов готово", icon: "✅", accent: "text-emerald-400", glow: "shadow-neon-cyan" },
+  { key: "done", label: "Клипов готово", icon: "✅", accent: "text-emerald-500 dark:text-emerald-400", glow: "shadow-neon-cyan" },
   { key: "composed", label: "Композиций", icon: "🎬", accent: "text-neon-fuchsia", glow: "shadow-neon-fuchsia" },
-  { key: "active", label: "Активных задач", icon: "⚙️", accent: "text-neon-gold", glow: "shadow-neon-gold" },
+  { key: "active", label: "Активных задач", icon: "⚙️", accent: "text-amber-500 dark:text-neon-gold", glow: "shadow-neon-gold" },
 ];
 
 const container = {
@@ -100,13 +102,15 @@ export default function Dashboard() {
   const recentTasks = [...tasks].slice(0, 5);
 
   const tooltipStyle = {
-    background: "rgba(17,17,24,0.95)",
-    border: "1px solid rgba(0,229,255,0.3)",
+    background: "rgba(255,255,255,0.95)",
+    border: "1px solid rgba(124,58,237,0.3)",
     borderRadius: "12px",
-    color: "#fff",
-    boxShadow: "0 0 20px rgba(0,229,255,0.15)",
+    color: "#1e2433",
+    boxShadow: "0 0 20px rgba(124,58,237,0.15)",
     backdropFilter: "blur(8px)",
   };
+  const axisStroke = "var(--text-muted)";
+  const gridStroke = "rgba(124,58,237,0.12)";
 
   return (
     <Layout>
@@ -116,13 +120,13 @@ export default function Dashboard() {
             <h1 className="text-neon-gradient font-display text-4xl font-bold">
               Дашборд
             </h1>
-            <p className="mt-2 text-sm text-slate-400">
+            <p className="mt-2 text-sm text-[var(--text-muted)]">
               AI AutoClip Pro 2.0 — статистика и состояние системы
             </p>
           </div>
           <button
             onClick={loadData}
-            className="glass rounded-xl px-5 py-2.5 text-sm font-medium text-slate-200 transition-all hover:shadow-neon-cyan hover:-translate-y-0.5"
+            className="glass rounded-xl px-5 py-2.5 text-sm font-medium text-[var(--text)] transition-all hover:shadow-neon-cyan hover:-translate-y-0.5"
           >
             🔄 Обновить
           </button>
@@ -130,7 +134,7 @@ export default function Dashboard() {
 
         {error && (
           <motion.div variants={item}>
-            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-300">
               Ошибка загрузки данных: {error}
             </div>
           </motion.div>
@@ -147,9 +151,8 @@ export default function Dashboard() {
               {STAT_CARDS.map((s) => (
                 <motion.div key={s.key} variants={item}>
                   <Card className={`group flex items-center gap-5 hover:${s.glow} hover:-translate-y-1`}>
-                    {/* Иконка в неоновом круге */}
                     <div
-                      className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-2xl ${s.glow} bg-white/5 ring-1 ring-white/10 transition-transform duration-300 group-hover:scale-110`}
+                      className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-2xl ${s.glow} bg-white/60 ring-1 ring-[var(--glass-border)] dark:bg-white/5 dark:ring-white/10 transition-transform duration-300 group-hover:scale-110`}
                     >
                       {s.icon}
                     </div>
@@ -157,7 +160,7 @@ export default function Dashboard() {
                       <div className={`neon-number text-4xl ${s.accent}`}>
                         {stats[s.key]}
                       </div>
-                      <div className="mt-1 text-sm text-slate-400">{s.label}</div>
+                      <div className="mt-1 text-sm text-[var(--text-muted)]">{s.label}</div>
                     </div>
                   </Card>
                 </motion.div>
@@ -198,18 +201,13 @@ export default function Dashboard() {
                   <div className="h-72">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={barData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                        <XAxis dataKey="name" stroke="#94a3b8" />
-                        <YAxis stroke="#94a3b8" />
+                        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+                        <XAxis dataKey="name" stroke={axisStroke} />
+                        <YAxis stroke={axisStroke} />
                         <Tooltip contentStyle={tooltipStyle} />
                         <Bar dataKey="progress" radius={[8, 8, 0, 0]}>
                           {barData.map((_, i) => (
-                            <Cell
-                              key={i}
-                              fill={
-                                ["#00e5ff", "#8a2eff", "#d946ef", "#fbbf24"][i % 4]
-                              }
-                            />
+                            <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />
                           ))}
                         </Bar>
                       </BarChart>
@@ -224,7 +222,7 @@ export default function Dashboard() {
               <motion.div variants={item}>
                 <Card title="Последние задачи">
                   {recentTasks.length === 0 ? (
-                    <p className="text-sm text-slate-400">
+                    <p className="text-sm text-[var(--text-muted)]">
                       Задач пока нет. Создайте обработку через раздел «Задачи».
                     </p>
                   ) : (
@@ -235,10 +233,10 @@ export default function Dashboard() {
                           className="glass flex items-center justify-between rounded-xl px-5 py-3.5 transition-all hover:shadow-neon-cyan hover:-translate-y-0.5"
                         >
                           <div>
-                            <div className="font-medium text-slate-100">
+                            <div className="font-medium text-[var(--text)]">
                               #{t.id} — {t.folder_path || "без пути"}
                             </div>
-                            <div className="text-xs text-slate-400">
+                            <div className="text-xs text-[var(--text-muted)]">
                               {t.processed_videos}/{t.total_videos} обработано
                             </div>
                           </div>

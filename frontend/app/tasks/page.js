@@ -54,7 +54,7 @@ export default function TasksPage() {
       </Card>
 
       <Card className="mt-6" title="Список задач">
-        {error && <p className="mb-3 text-sm text-red-400">{error}</p>}
+        {error && <p className="mb-3 text-sm text-red-500 dark:text-red-400">{error}</p>}
 
         <div className="mb-4 flex flex-wrap gap-2">
           {FILTERS.map((f) => (
@@ -64,7 +64,7 @@ export default function TasksPage() {
               className={`rounded-full px-3 py-1 text-sm font-medium transition-all ${
                 filter === f.value
                   ? "bg-gradient-to-r from-neon-cyan to-neon-violet text-white shadow-neon-cyan"
-                  : "glass text-slate-300 hover:shadow-neon-cyan"
+                  : "glass text-[var(--text)] hover:shadow-neon-cyan"
               }`}
             >
               {f.label}
@@ -72,21 +72,21 @@ export default function TasksPage() {
           ))}
           <button
             onClick={loadTasks}
-            className="glass ml-auto rounded-lg px-3 py-1 text-sm text-slate-300 transition-all hover:shadow-neon-cyan"
+            className="glass ml-auto rounded-lg px-3 py-1 text-sm text-[var(--text)] transition-all hover:shadow-neon-cyan"
           >
             🔄
           </button>
         </div>
 
         {loading ? (
-          <div className="py-10 text-center text-slate-400">Загрузка...</div>
+          <div className="py-10 text-center text-[var(--text-muted)]">Загрузка...</div>
         ) : filtered.length === 0 ? (
-          <p className="text-sm text-slate-400">Задач не найдено</p>
+          <p className="text-sm text-[var(--text-muted)]">Задач не найдено</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-white/10 text-slate-500">
+                <tr className="border-b border-[var(--line)] text-[var(--text-muted)]">
                   <th className="px-3 py-2">ID</th>
                   <th className="px-3 py-2">Папка</th>
                   <th className="px-3 py-2">Прогресс</th>
@@ -98,15 +98,11 @@ export default function TasksPage() {
                 {filtered.map((t) => (
                   <tr
                     key={t.id}
-                    className="border-b border-white/5 transition-colors hover:bg-white/5"
+                    className="border-b border-[var(--line)] transition-colors hover:bg-[var(--panel-hover)]"
                   >
-                    <td className="px-3 py-2 font-medium text-slate-200">
-                      #{t.id}
-                    </td>
-                    <td className="px-3 py-2 text-slate-300">
-                      {t.folder_path}
-                    </td>
-                    <td className="px-3 py-2 text-slate-300">
+                    <td className="px-3 py-2 font-medium text-[var(--text)]">#{t.id}</td>
+                    <td className="px-3 py-2 text-[var(--text-muted)]">{t.folder_path}</td>
+                    <td className="px-3 py-2 text-[var(--text-muted)]">
                       {t.processed_videos}/{t.total_videos}
                     </td>
                     <td className="px-3 py-2">

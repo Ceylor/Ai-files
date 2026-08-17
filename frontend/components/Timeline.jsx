@@ -49,7 +49,7 @@ export default function Timeline({
 
   if (!segments.length) {
     return (
-      <div className="glass flex h-24 items-center justify-center rounded-xl text-sm text-slate-400">
+      <div className="glass flex h-24 items-center justify-center rounded-xl text-sm text-[var(--text-muted)]">
         Нет сегментов для отображения на таймлайне
       </div>
     );
@@ -66,14 +66,14 @@ export default function Timeline({
     <div className="space-y-2">
       {/* Дорожка */}
       <div
-        className="relative w-full overflow-hidden rounded-xl border border-white/10 bg-night-900/60 backdrop-blur-lg"
+        className="relative w-full overflow-hidden rounded-xl border border-slate-200 bg-white/60 backdrop-blur-lg dark:border-white/10 dark:bg-night-900/60"
         style={{ height }}
       >
         {/* Сетка */}
         {Array.from({ length: 11 }).map((_, i) => (
           <div
             key={i}
-            className="absolute top-0 h-full w-px bg-white/5"
+            className="absolute top-0 h-full w-px bg-slate-300/40 dark:bg-white/5"
             style={{ left: `${i * 10}%` }}
           />
         ))}
@@ -96,7 +96,7 @@ export default function Timeline({
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: isActive ? 1.05 : 1 }}
               transition={{ duration: 0.3 }}
-              className={`absolute top-1 bottom-1 rounded-lg bg-gradient-to-r ${gradient} px-1.5 text-left text-[10px] font-bold text-white ${glow} ring-1 ring-white/10 transition-all duration-200 ${
+              className={`absolute top-1 bottom-1 rounded-lg bg-gradient-to-r ${gradient} px-1.5 text-left text-[10px] font-bold text-white ${glow} ring-1 ring-white/20 transition-all duration-200 ${
                 isActive ? "z-10 ring-2 ring-neon-cyan scale-y-105" : "hover:brightness-110"
               }`}
               style={{ left: `${left}%`, width: `${width}%` }}
@@ -107,14 +107,14 @@ export default function Timeline({
           );
         })}
 
-        {/* Маркеры переходов — светящиеся точки */}
+        {/* Маркеры переходов */}
         {transitions.map((tr, i) => {
           const left = ((tr.at || 0) / total) * 100;
           const color = TRANSITION_GLOW[tr.type] || "#00e5ff";
           return (
             <div
               key={i}
-              className="absolute top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-full bg-night-950 px-1 text-[11px] ring-1 ring-white/20"
+              className="absolute top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white px-1 text-[11px] ring-1 ring-slate-300 dark:bg-night-950 dark:ring-white/20"
               style={{ boxShadow: `0 0 12px ${color}` }}
               title={`Переход: ${tr.type}`}
             >
@@ -125,7 +125,7 @@ export default function Timeline({
       </div>
 
       {/* Шкала времени */}
-      <div className="flex items-center justify-between text-[11px] text-slate-500">
+      <div className="flex items-center justify-between text-[11px] text-[var(--text-muted)]">
         <span>0s</span>
         <span>{total.toFixed(1)}s</span>
       </div>

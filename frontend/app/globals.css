@@ -2,20 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ===== Переменные ===== */
-:root {
+/* ===== Переменные: ТЁМНАЯ (основная) ===== */
+:root,
+html.dark {
   --bg: #0a0a0f;
   --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --heading: #ffffff;
   --glass-bg: rgba(26, 26, 46, 0.55);
   --glass-border: rgba(255, 255, 255, 0.07);
+  --glass-hover-border: rgba(0, 229, 255, 0.4);
+  --card-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+  --shadow: 0 8px 40px rgba(0, 0, 0, 0.35);
+  --grid-color: rgba(0, 229, 255, 0.05);
+  --input-border: rgba(255, 255, 255, 0.1);
+  --line: rgba(255, 255, 255, 0.1);
+  --panel-hover: rgba(255, 255, 255, 0.05);
 }
 
-/* Светлая тема: тот же футуристичный стиль, но светлее */
+/* ===== Переменные: СВЕТЛАЯ ===== */
 html:not(.dark) {
-  --bg: #f0f2ff;
-  --text: #111118;
-  --glass-bg: rgba(255, 255, 255, 0.65);
-  --glass-border: rgba(124, 58, 237, 0.18);
+  --bg: #f0f4ff;
+  --text: #1e2433;
+  --text-muted: #5b6472;
+  --heading: #0f1420;
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-border: rgba(0, 229, 255, 0.18);
+  --glass-hover-border: rgba(124, 58, 237, 0.4);
+  --card-gradient: linear-gradient(135deg, rgba(180, 220, 255, 0.5), rgba(216, 180, 255, 0.35));
+  --shadow: 0 8px 30px rgba(56, 89, 200, 0.15);
+  --grid-color: rgba(124, 58, 237, 0.08);
+  --input-border: rgba(124, 58, 237, 0.2);
+  --line: rgba(124, 58, 237, 0.12);
+  --panel-hover: rgba(124, 58, 237, 0.05);
 }
 
 html {
@@ -30,7 +49,7 @@ body {
   overflow-x: hidden;
 }
 
-/* ===== Глубокий фон с неоновыми волнами (декоративные орбы) ===== */
+/* ===== Глубокий фон с неоновыми орбами ===== */
 .neon-bg {
   position: fixed;
   inset: 0;
@@ -44,27 +63,29 @@ body {
   animation: bgShift 18s ease-in-out infinite;
 }
 
+/* Светлая тема: мягкие, но заметные орбы */
 html:not(.dark) .neon-bg {
   background:
-    radial-gradient(circle at 15% 20%, rgba(124, 58, 237, 0.15), transparent 40%),
-    radial-gradient(circle at 85% 10%, rgba(0, 229, 255, 0.15), transparent 40%),
-    radial-gradient(circle at 50% 100%, rgba(217, 70, 239, 0.12), transparent 45%);
+    radial-gradient(circle at 15% 20%, rgba(124, 58, 237, 0.14), transparent 42%),
+    radial-gradient(circle at 85% 10%, rgba(0, 229, 255, 0.16), transparent 42%),
+    radial-gradient(circle at 50% 100%, rgba(217, 70, 239, 0.12), transparent 45%),
+    radial-gradient(circle at 80% 60%, rgba(251, 191, 36, 0.08), transparent 40%);
 }
 
 @keyframes bgShift {
   0%, 100% { filter: hue-rotate(0deg); opacity: 1; }
-  50% { filter: hue-rotate(20deg); opacity: 0.85; }
+  50% { filter: hue-rotate(15deg); opacity: 0.85; }
 }
 
-/* ===== Анимированная неоновая сетка ===== */
+/* ===== Неоновая сетка ===== */
 .neon-grid {
   position: fixed;
   inset: 0;
   z-index: -2;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(0, 229, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 229, 255, 0.05) 1px, transparent 1px);
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
   background-size: 46px 46px;
   mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, #000 50%, transparent 100%);
   -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, #000 50%, transparent 100%);
@@ -78,19 +99,22 @@ html:not(.dark) .neon-bg {
   100% { background-position: 0 46px; }
 }
 
-/* ===== Глянцевое стекло ===== */
+/* ===== Глянцевое стекло (обе темы) ===== */
 .glass {
   position: relative;
   background: var(--glass-bg);
+  background-image: var(--card-gradient);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--glass-border);
-  box-shadow:
-    0 8px 40px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
+}
+.glass:hover {
+  border-color: var(--glass-hover-border);
 }
 
-/* Светящаяся рамка сверху у glass-карточек */
+/* Светящаяся верхняя рамка */
 .glass::before {
   content: "";
   position: absolute;
@@ -177,7 +201,7 @@ html:not(.dark) .neon-bg {
   transform: none;
 }
 
-/* ===== Неоновая подсветка активного пункта навигации ===== */
+/* ===== Активный пункт навигации ===== */
 .nav-active {
   color: #fff;
   background: linear-gradient(90deg, rgba(0, 229, 255, 0.18), rgba(124, 58, 237, 0.18));
@@ -185,14 +209,15 @@ html:not(.dark) .neon-bg {
   box-shadow: inset 0 0 20px rgba(0, 229, 255, 0.10), 0 0 16px rgba(0, 229, 255, 0.2);
 }
 
-/* ===== Неоновая цифра (статистика) ===== */
+/* ===== Неоновая цифра ===== */
 .neon-number {
   font-family: var(--font-space), var(--font-inter), sans-serif;
   font-weight: 700;
-  text-shadow: 0 0 18px currentColor;
 }
+html.dark .neon-number { text-shadow: 0 0 18px currentColor; }
+html:not(.dark) .neon-number { text-shadow: 0 2px 12px rgba(124, 58, 237, 0.25); }
 
-/* ===== Уважение к системной настройке снижения движения ===== */
+/* ===== Уважение к снижению движения ===== */
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;

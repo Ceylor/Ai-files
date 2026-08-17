@@ -36,7 +36,7 @@ export default function SettingsPage() {
   }
 
   const inputCls =
-    "glass w-full rounded-xl border border-white/10 px-3 py-2 text-sm text-white focus:border-neon-cyan focus:outline-none focus:ring-2 focus:ring-neon-cyan/30";
+    "glass w-full rounded-xl border border-[var(--input-border)] px-3 py-2 text-sm text-[var(--text)] focus:border-neon-cyan focus:outline-none focus:ring-2 focus:ring-neon-cyan/30";
 
   return (
     <Layout>
@@ -52,7 +52,7 @@ export default function SettingsPage() {
             <form onSubmit={handleSave} className="space-y-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-300">
+                  <label className="mb-1 block text-sm font-medium text-[var(--text)]">
                     Макс. длительность клипа (сек)
                   </label>
                   <input
@@ -66,7 +66,7 @@ export default function SettingsPage() {
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-300">
+                  <label className="mb-1 block text-sm font-medium text-[var(--text)]">
                     Порог схожести для композиции
                   </label>
                   <input
@@ -81,7 +81,7 @@ export default function SettingsPage() {
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-300">
+                  <label className="mb-1 block text-sm font-medium text-[var(--text)]">
                     Макс. фрагментов в кластере
                   </label>
                   <input
@@ -95,7 +95,7 @@ export default function SettingsPage() {
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-300">
+                  <label className="mb-1 block text-sm font-medium text-[var(--text)]">
                     Категория по умолчанию
                   </label>
                   <input
@@ -109,7 +109,7 @@ export default function SettingsPage() {
 
               <div className="flex items-center gap-3">
                 <Button type="submit">💾 Сохранить</Button>
-                {saved && <span className="text-sm text-emerald-400">Сохранено</span>}
+                {saved && <span className="text-sm text-emerald-600 dark:text-emerald-400">Сохранено</span>}
               </div>
             </form>
           </Card>
@@ -117,7 +117,7 @@ export default function SettingsPage() {
 
         <motion.div variants={item}>
           <Card className="mt-6" title="О системе">
-            <div className="space-y-1 text-sm text-slate-300">
+            <div className="space-y-1 text-sm text-[var(--text-muted)]">
               <p>🎬 AI AutoClip Pro 2.0 — ИИ-генерация клипов</p>
               <p>🧠 Многослойный анализ контента</p>
               <p>🗂️ Пакетная обработка и композиция</p>
