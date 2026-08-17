@@ -14,8 +14,8 @@ const STATUS_STYLES = {
 };
 
 const STATUS_LABELS = {
-  pending: "В очереди",
-  processing: "Обработка",
+  pending: "Ожидает",
+  processing: "Обрабатывается",
   completed: "Готово",
   composed: "Композиция",
   error: "Ошибка",
@@ -23,17 +23,3 @@ const STATUS_LABELS = {
   uploaded: "Загружено",
   analyzing: "Анализ",
 };
-
-export default function StatusBadge({ status }) {
-  const style =
-    STATUS_STYLES[status] ||
-    "bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-500/15 dark:text-slate-300 dark:border-slate-500/30";
-  const label = STATUS_LABELS[status] || status;
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold backdrop-blur-sm ${style}`}
-    >
-      {label}
-    </span>
-  );
-}
