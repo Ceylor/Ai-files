@@ -9,9 +9,6 @@ import VideoPlayer from "@/components/VideoPlayer";
 import Timeline from "@/components/Timeline";
 import api from "@/lib/api";
 
-/**
- * Строит сегменты таймлайна из метаданных клипа.
- */
 function buildSegments(video) {
   const meta = video.analysis_results || video.extra_metadata || {};
   const scenes = meta.scenes || meta.scene_analysis || [];
@@ -38,9 +35,6 @@ function buildSegments(video) {
   }));
 }
 
-/**
- * Строит точки переходов из метаданных (если есть).
- */
 function buildTransitions(video) {
   const meta = video.analysis_results || video.extra_metadata || {};
   const list = meta.transitions || meta.transition_points || [];
@@ -55,10 +49,9 @@ const container = {
   hidden: { opacity: 0 },
   show: { opacity: 1, transition: { staggerChildren: 0.06 } },
 };
-
 const item = {
-  hidden: { opacity: 0, y: 16 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.35 } },
+  hidden: { opacity: 0, y: 18 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
 export default function ResultsPage() {
@@ -101,16 +94,16 @@ export default function ResultsPage() {
       <motion.div variants={container} initial="hidden" animate="show">
         <motion.div variants={item} className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="font-display text-3xl font-bold text-slate-800 dark:text-white">
+            <h1 className="text-neon-gradient font-display text-4xl font-bold">
               Результаты
             </h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            <p className="mt-2 text-sm text-slate-400">
               Созданные клипы и композиции с визуальным таймлайном
             </p>
           </div>
           <button
             onClick={loadVideos}
-            className="glass rounded-xl px-4 py-2 text-sm text-slate-600 transition-all hover:shadow-neon-cyan dark:text-slate-300"
+            className="glass rounded-xl px-5 py-2.5 text-sm font-medium text-slate-200 transition-all hover:shadow-neon-cyan hover:-translate-y-0.5"
           >
             🔄 Обновить
           </button>
@@ -136,7 +129,7 @@ export default function ResultsPage() {
               className={`rounded-full px-4 py-1.5 text-sm font-medium transition-all ${
                 filter === f.value
                   ? "bg-gradient-to-r from-neon-cyan to-neon-violet text-white shadow-neon-cyan"
-                  : "glass text-slate-600 hover:shadow-neon-cyan dark:text-slate-300"
+                  : "glass text-slate-300 hover:shadow-neon-cyan"
               }`}
             >
               {f.label}
@@ -146,11 +139,11 @@ export default function ResultsPage() {
 
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <span className="animate-pulse-soft text-slate-400">Загрузка...</span>
+            <span className="animate-pulse-soft text-lg text-neon-cyan">Загрузка...</span>
           </div>
         ) : filtered.length === 0 ? (
           <Card>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-sm text-slate-400">
               Клипов пока нет. Обработайте задачу — результаты появятся здесь.
             </p>
           </Card>
@@ -161,21 +154,18 @@ export default function ResultsPage() {
                 <Card>
                   <div className="mb-3 flex items-start justify-between">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-slate-700 dark:text-slate-200">
+                      <div className="truncate text-sm font-medium text-slate-200">
                         {v.file_path.split("/").pop()}
                       </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        id: {v.id}
-                      </div>
+                      <div className="text-xs text-slate-400">id: {v.id}</div>
                     </div>
                     <StatusBadge status={v.status} />
                   </div>
 
                   <VideoPlayer src={srcFor(v)} title={v.file_path.split("/").pop()} />
 
-                  {/* Визуальный таймлайн */}
                   <div className="mt-3">
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Таймлайн
                     </div>
                     <Timeline
@@ -185,16 +175,12 @@ export default function ResultsPage() {
                   </div>
 
                   <div className="mt-3 flex gap-2">
-                    <a
-                      href={srcFor(v)}
-                      download
-                      className="btn-neon text-sm"
-                    >
+                    <a href={srcFor(v)} download className="btn-neon text-sm">
                       ⬇️ Скачать
                     </a>
                     <button
                       onClick={() => setSelected(v)}
-                      className="glass rounded-xl px-4 py-2 text-sm text-slate-600 transition-all hover:shadow-neon-cyan dark:text-slate-300"
+                      className="glass rounded-xl px-4 py-2 text-sm text-slate-300 transition-all hover:shadow-neon-cyan"
                     >
                       Анализ
                     </button>
@@ -202,7 +188,7 @@ export default function ResultsPage() {
 
                   {selected?.id === v.id && (
                     <div className="glass mt-3 rounded-xl p-3 text-xs">
-                      <pre className="whitespace-pre-wrap text-slate-600 dark:text-slate-300">
+                      <pre className="whitespace-pre-wrap text-slate-300">
                         {JSON.stringify(
                           v.analysis_results || v.extra_metadata || {},
                           null,

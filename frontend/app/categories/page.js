@@ -12,15 +12,14 @@ const container = {
   show: { opacity: 1, transition: { staggerChildren: 0.06 } },
 };
 const item = {
-  hidden: { opacity: 0, y: 16 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.35 } },
+  hidden: { opacity: 0, y: 18 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
 export default function CategoriesPage() {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [parentId, setParentId] = useState("");
@@ -76,11 +75,14 @@ export default function CategoriesPage() {
     }
   }
 
+  const inputCls =
+    "glass w-full rounded-xl border border-white/10 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-neon-cyan focus:outline-none focus:ring-2 focus:ring-neon-cyan/30";
+
   return (
     <Layout>
       <motion.div variants={container} initial="hidden" animate="show">
         <motion.div variants={item}>
-          <h1 className="mb-6 font-display text-3xl font-bold text-slate-800 dark:text-white">
+          <h1 className="mb-6 text-neon-gradient font-display text-4xl font-bold">
             Категории
           </h1>
         </motion.div>
@@ -97,35 +99,35 @@ export default function CategoriesPage() {
           <Card title="Новая категория">
             <form onSubmit={handleCreate} className="space-y-3">
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                <label className="mb-1 block text-sm font-medium text-slate-300">
                   Название
                 </label>
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Например: Путешествия"
-                  className="glass w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-neon-cyan focus:outline-none focus:ring-2 focus:ring-neon-cyan/30 dark:border-white/10 dark:text-white"
+                  className={inputCls}
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                <label className="mb-1 block text-sm font-medium text-slate-300">
                   Описание
                 </label>
                 <input
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Описание (необязательно)"
-                  className="glass w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-neon-cyan focus:outline-none focus:ring-2 focus:ring-neon-cyan/30 dark:border-white/10 dark:text-white"
+                  className={inputCls}
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                <label className="mb-1 block text-sm font-medium text-slate-300">
                   Родительская категория
                 </label>
                 <select
                   value={parentId}
                   onChange={(e) => setParentId(e.target.value)}
-                  className="glass w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-neon-cyan focus:outline-none dark:border-white/10 dark:text-white"
+                  className={inputCls}
                 >
                   <option value="">— нет —</option>
                   {categories.map((c) => (
@@ -147,9 +149,7 @@ export default function CategoriesPage() {
             {loading ? (
               <div className="py-10 text-center text-slate-400">Загрузка...</div>
             ) : categories.length === 0 ? (
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Категорий нет
-              </p>
+              <p className="text-sm text-slate-400">Категорий нет</p>
             ) : (
               <div className="space-y-2">
                 {categories.map((c) => (
@@ -158,10 +158,8 @@ export default function CategoriesPage() {
                     className="glass flex items-center justify-between rounded-xl px-4 py-3 transition-all hover:shadow-neon-cyan"
                   >
                     <div>
-                      <div className="font-medium text-slate-700 dark:text-slate-200">
-                        {c.name}
-                      </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
+                      <div className="font-medium text-slate-200">{c.name}</div>
+                      <div className="text-xs text-slate-400">
                         {c.description || "Без описания"}
                         {c.parent_id ? ` • родитель: #${c.parent_id}` : ""}
                       </div>

@@ -9,11 +9,10 @@ export default function Button({
     "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-60";
   const variants = {
     primary: "btn-neon",
-    secondary: "glass text-slate-700 hover:shadow-neon-cyan dark:text-slate-200",
+    secondary: "glass text-slate-200 hover:shadow-neon-cyan",
     danger:
       "bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg hover:shadow-[0_0_20px_rgba(239,68,68,0.4)] hover:brightness-110",
-    ghost:
-      "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10",
+    ghost: "text-slate-300 hover:bg-white/5 hover:text-white",
   };
 
   return (
