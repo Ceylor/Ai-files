@@ -1,4 +1,102 @@
-# ------------------------------------------------------------------ шаги
+"""
+Пакетная обработка видео (BatchProcessor).
+
+Асинхронная очередь последовательной обработки видео:
+    ingest → анализ → паттерны → сторибилдер → монтаж → экспорт.
+
+Устойчивость к ошибкам: при сбое одного видео обработка продолжается,
+статус помечается "error". Graceful shutdown: очередь проверяет флаг
+stop_event и корректно завершает работу.
+
+Интеграция с БД: обновляет статус batch_jobs и videos через CRUD-функции.
+После обработки всех видео выполняется композиция клипов по CLIP-эмбеддингам
+(ClipComposer) с сохранением результата в БД (новые записи videos).
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import shutil
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from src.utils.logger import ws_manager
+from src.database.session import session_scope
+from src.database import crud as db_crud
+from src.modules.mod9_batch_processing.composer import ClipComposer
+
+logger = logging.getLogger("batch.processor")
+
+
+class BatchProcessor:
+    """
+    Оркестратор пакетной обработки видео.
+
+    Args:
+        work_dir: папка для временных файлов и результатов.
+        output_dir: папка для итоговых клипов.
+        category: категория по умолчанию.
+    """
+
+    def __init__(
+        self,
+        work_dir: Path,
+        output_dir: Path,
+        category: str = "default",
+        similarity_threshold: float = 0.75,
+    ) -> None:
+        self.work_dir = Path(work_dir)
+        self.output_dir = Path(output_dir)
+        self.work_dir.mkdir(parents=True, exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.category = category
+        self.composer = ClipComposer(similarity_threshold=similarity_threshold)
+        self._stop_event = asyncio.Event()
+
+    # ------------------------------------------------------------------ обработка
+    async def process_folder(self, folder_id: int) -> Dict[str, Any]:
+        """
+        Обрабатывает все "pending" видео пакетной задачи.
+
+        Обновляет статус batch_job: processing → completed/error.
+        После обработки всех видео выполняет композицию клипов и сохраняет
+        результат в БД.
+        """
+        await self._broadcast(f"🚀 Запуск пакетной обработки задачи #{folder_id}")
+        await self._set_batch_status(folder_id, "processing")
+
+        try:
+            videos = self._get_pending_videos(folder_id)
+            total = len(videos)
+            await self._broadcast(f"📁 Найдено видео для обработки: {total}")
+
+            processed = 0
+            for video in videos:
+                if self._stop_event.is_set():
+                    await self._broadcast("⏹️  Остановлено (graceful shutdown)")
+                    break
+                try:
+                    await self._process_one(video, folder_id)
+                    processed += 1
+                    await self._update_batch_progress(folder_id, processed)
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("Ошибка обработки видео %s", video.get("id"))
+                    await self._broadcast(f"  ❌ Ошибка видео {video.get('id')}: {exc}")
+                    await self._set_video_status(video.get("id"), "error")
+
+            # Доработка 2: композиция клипов и сохранение в БД.
+            if not self._stop_event.is_set():
+                await self._compose_and_save(folder_id)
+
+            await self._finish_batch(folder_id, processed, total)
+            return {"folder_id": folder_id, "processed": processed, "total": total}
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Сбой пакетной обработки %s", folder_id)
+            await self._set_batch_status(folder_id, "error")
+            await self._broadcast(f"❌ Сбой пакетной обработки: {exc}")
+            raise
+
+    # ------------------------------------------------------------------ шаги
     async def _process_one(self, video: Dict[str, Any], folder_id: int) -> None:
         """Обрабатывает одно видео: ingest → анализ → паттерны → монтаж → экспорт.
 
@@ -163,3 +261,121 @@
         except Exception as exc:  # noqa: BLE001
             logger.warning("Экспорт (fallback-копия) не удался: %s", exc)
             return str(video_path)
+
+    # ------------------------------------------------------------------ композиция
+    async def _compose_and_save(self, folder_id: int) -> None:
+        """
+        Композиция клипов по CLIP-эмбеддингам обработанных видео и сохранение
+        созданных клипов в БД (новые записи videos со статусом 'composed',
+        привязанные к batch_job).
+        """
+        try:
+            await self._broadcast("🧩 Композиция клипов по CLIP-эмбеддингам...")
+            fragments: List[Dict[str, Any]] = []
+            with session_scope() as db:
+                videos = db_crud.list_videos(db, batch_job_id=folder_id)
+                for v in videos:
+                    if v.status != "completed":
+                        continue
+                    # Выходной путь клипа.
+                    output_path = self.output_dir / f"{Path(v.file_path).stem}_clip.mp4"
+                    embeddings = db_crud.get_frame_embeddings(db, v.id)
+                    emb = None
+                    if embeddings:
+                        emb = embeddings[0].get("embedding")
+                    fragments.append({
+                        "video_id": v.id,
+                        "path": str(output_path),
+                        "embedding": emb,
+                    })
+
+            if not fragments:
+                await self._broadcast("  ⚠️  Нет обработанных видео для композиции")
+                return
+
+            plans = self.composer.compose_clips(
+                fragments,
+                output_dir=self.output_dir,
+                prefix="composed",
+            )
+            await self._broadcast(f"  💡 Создано композиций: {len(plans)}")
+
+            with session_scope() as db:
+                for plan in plans:
+                    out_path = plan.get("output_path")
+                    if not out_path:
+                        continue
+                    try:
+                        db_crud.create_video(
+                            db,
+                            str(out_path),
+                            status="composed",
+                            category_id=None,
+                            batch_job_id=folder_id,
+                            extra_metadata={
+                                "kind": "composed",
+                                "plan_index": plan.get("index"),
+                                "name": plan.get("name"),
+                                "source_video_ids": [
+                                    f.get("video_id") for f in plan.get("fragments", [])
+                                ],
+                            },
+                        )
+                    except ValueError:
+                        logger.warning("Композиция уже существует, пропуск: %s", out_path)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("Не удалось сохранить композицию %s: %s", out_path, exc)
+            await self._broadcast("✅ Композиции сохранены в БД")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Сбой композиции %s", folder_id)
+            await self._broadcast(f"❌ Ошибка композиции: {exc}")
+
+    # ------------------------------------------------------------------ БД-операции
+    def _get_pending_videos(self, folder_id: int) -> list:
+        """Возвращает pending-видео пакетной задачи."""
+        with session_scope() as db:
+            videos = db_crud.get_batch_pending_videos(db, folder_id)
+            return [
+                {"id": v.id, "file_path": v.file_path, "status": v.status}
+                for v in videos
+            ]
+
+    async def _set_batch_status(self, folder_id: int, status: str) -> None:
+        """Обновляет статус пакетной задачи."""
+        try:
+            with session_scope() as db:
+                db_crud.update_batch_job_status(db, folder_id, status=status)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Не удалось обновить статус batch %s: %s", folder_id, exc)
+
+    async def _update_batch_progress(self, folder_id: int, processed: int) -> None:
+        try:
+            with session_scope() as db:
+                db_crud.update_batch_job_progress(db, folder_id, processed)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Не удалось обновить прогресс batch %s: %s", folder_id, exc)
+
+    async def _finish_batch(self, folder_id: int, processed: int, total: int) -> None:
+        try:
+            with session_scope() as db:
+                db_crud.finish_batch_job(db, folder_id, processed, total)
+            await self._broadcast(f"✅ Пакет #{folder_id} завершён: {processed}/{total}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Не удалось завершить batch %s: %s", folder_id, exc)
+
+    async def _set_video_status(self, video_id: int, status: str) -> None:
+        try:
+            with session_scope() as db:
+                db_crud.update_video_status(db, video_id, status=status)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Не удалось обновить статус видео %s: %s", video_id, exc)
+
+    # ------------------------------------------------------------------ утилиты
+    async def shutdown(self) -> None:
+        """Устанавливает флаг graceful shutdown."""
+        await self._broadcast("⏹️  Получен сигнал завершения, останавливаю очередь...")
+        self._stop_event.set()
+
+    async def _broadcast(self, message: str) -> None:
+        await ws_manager.broadcast(message)
+        logger.info(message)
