@@ -44,15 +44,21 @@ export default function CategoriesPage() {
 
   async function handleCreate(e) {
     e.preventDefault();
-    if (!name.trim()) return;
+    // Поле name обязательно — иначе бэкенд вернёт 422 (Form(...) required).
+    if (!name.trim()) {
+      alert("Введите название");
+      return;
+    }
     setSubmitting(true);
     setError("");
     try {
-      await api.createCategory({
-        name: name.trim(),
-        description: description.trim() || null,
-        parent_id: parentId ? String(parentId) : null,
-      });
+      // Передаём только заполненные поля: name обязателен, description и
+      // parent_id — только если указаны. Не отправляем null/пустые значения,
+      // чтобы избежать 422 из-за преобразования "null" в Optional[int].
+      const data = { name: name.trim() };
+      if (description.trim()) data.description = description.trim();
+      if (parentId) data.parent_id = String(parentId);
+      await api.createCategory(data);
       setName("");
       setDescription("");
       setParentId("");
