@@ -25,13 +25,13 @@ class ConnectionManager:
             except Exception:
                 pass
         
-        print(f" Клиент подключился. Всего клиентов: {len(self.active_connections)}")
+        print(f"[WS] Client connected. Total: {len(self.active_connections)}")
     
     def disconnect(self, websocket: WebSocket):
         """Отключает WebSocket"""
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-            print(f"📴 Клиент отключился. Осталось клиентов: {len(self.active_connections)}")
+            print(f"[WS] Client disconnected. Remaining: {len(self.active_connections)}")
     
     async def broadcast(self, message: str):
         """

@@ -710,6 +710,15 @@ async def api_batch_list(status: Optional[str] = None, db: Session = Depends(get
     return {"tasks": [_batch_to_dict(b) for b in batches]}
 
 
+async def run_batch_task(folder_id: int) -> None:
+    """Фоновая задача пакетной обработки."""
+    try:
+        await batch_processor.process_folder(folder_id)
+    except Exception as exc:
+        logger.exception("Ошибка пакетной обработки задачи %s", folder_id)
+        await ws_manager.broadcast(f"❌ Ошибка пакетной обработки #{folder_id}: {exc}")
+
+
 @app.post("/api/batch/process/{folder_id}")
 async def api_batch_process(
     folder_id: int,
