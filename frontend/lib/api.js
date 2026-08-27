@@ -6,12 +6,18 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 async function request(path, options = {}) {
+  // Не ставим Content-Type вручную для FormData — браузер сам выставит
+  // правильный multipart boundary.
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+
+  const headers = { ...(options.headers || {}) };
+  if (!isFormData && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
+    headers,
   });
 
   if (!res.ok) {
@@ -54,6 +60,21 @@ export const api = {
     const qs = new URLSearchParams(params).toString();
     return request(`/api/videos${qs ? `?${qs}` : ""}`);
   },
+  getVideo: (id) => request(`/api/videos/${id}`),
+  createVideo: (data) =>
+    request("/api/videos", {
+      method: "POST",
+      body: new URLSearchParams(data).toString(),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    }),
+  updateVideoStatus: (id, status) =>
+    request(`/api/videos/${id}/status`, {
+      method: "PATCH",
+      body: new URLSearchParams({ status }).toString(),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    }),
+  deleteVideo: (id) =>
+    request(`/api/videos/${id}`, { method: "DELETE" }),
 
   // --- пакетная обработка ---
   batchUploadFolder: (folderPath) =>
@@ -85,8 +106,10 @@ export const api = {
   batchList: () => request("/api/batch/list"),
 
   // --- анализ ---
-  analyzeVideo: (id) => request(`/api/analysis/analyze/${id}`, { method: "POST" }),
+  analyzeVideo: (id) =>
+    request(`/api/analysis/analyze/${id}`, { method: "POST" }),
   getAnalysis: (id) => request(`/api/analysis/${id}`),
+  getEmbeddings: (id) => request(`/api/analysis/${id}/embeddings`),
 
   // --- обучение ---
   learningTrain: (category) =>
@@ -97,6 +120,12 @@ export const api = {
     }),
   learningStatus: () => request("/api/learning/status"),
   learningCategories: () => request("/api/learning/categories"),
+  learningProfile: (category) =>
+    request(`/api/learning/profile/${encodeURIComponent(category)}`),
+  learningFindSimilar: (category, k = 5) =>
+    request(
+      `/api/learning/find_similar/${encodeURIComponent(category)}?k=${k}`
+    ),
 };
 
 export default api;
