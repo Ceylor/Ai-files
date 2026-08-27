@@ -62,6 +62,7 @@ class BatchProcessor:
         После обработки всех видео выполняет композицию клипов и сохраняет
         результат в БД.
         """
+        import time
         await self._broadcast(f"🚀 Запуск пакетной обработки задачи #{folder_id}")
         await self._set_batch_status(folder_id, "processing")
 
@@ -71,14 +72,29 @@ class BatchProcessor:
             await self._broadcast(f"📁 Найдено видео для обработки: {total}")
 
             processed = 0
+            total_time = 0.0
             for video in videos:
                 if self._stop_event.is_set():
                     await self._broadcast("⏹️  Остановлено (graceful shutdown)")
                     break
                 try:
+                    start = time.monotonic()
                     await self._process_one(video, folder_id)
+                    elapsed = time.monotonic() - start
+                    total_time += elapsed
                     processed += 1
                     await self._update_batch_progress(folder_id, processed)
+
+                    # Прогресс и оставшееся время.
+                    pct = (processed / total) * 100 if total else 0
+                    avg = total_time / processed if processed else 0
+                    remaining = avg * (total - processed)
+                    remaining_min = int(remaining // 60)
+                    remaining_sec = int(remaining % 60)
+                    await self._broadcast(
+                        f"  📊 Прогресс: {processed}/{total} ({pct:.0f}%) "
+                        f"— осталось ~{remaining_min}м {remaining_sec}с"
+                    )
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Ошибка обработки видео %s", video.get("id"))
                     await self._broadcast(f"  ❌ Ошибка видео {video.get('id')}: {exc}")
@@ -120,6 +136,18 @@ class BatchProcessor:
         await self._broadcast("    🔍 Анализ...")
         analysis = await self._run_analysis(video_path, video_id)
 
+        # Шаг 2.5: Многослойный скоринг сцен.
+        scenes = analysis.get("scenes", []) or ingest_result.get("scenes", [])
+        scored_scenes = []
+        if scenes:
+            await self._broadcast("    📊 Скоринг сцен...")
+            scored_scenes = await self._score_scenes(video_path, scenes, analysis)
+            if scored_scenes:
+                top = scored_scenes[0]
+                await self._broadcast(
+                    f"    🏆 Лучшая сцена: {top.get('start_sec', 0):.1f}–{top.get('end_sec', 0):.1f}с (скор: {top['score']})"
+                )
+
         # Шаг 3: Поиск паттернов (самообучение). Fallback — None.
         await self._broadcast("    🧠 Паттерны...")
         pattern_profile = await self._find_pattern(video_id)
@@ -156,6 +184,21 @@ class BatchProcessor:
             logger.warning("Ingest упал (%s), продолжаю с исходником", exc)
             await self._broadcast(f"    ⚠️  Ingest fallback: {exc}")
             return {"success": False, "meta": {}, "normalized_path": str(video_path)}
+
+    async def _score_scenes(
+        self,
+        video_path: Path,
+        scenes: List[Dict[str, Any]],
+        analysis: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """Вычисляет скор интереса для каждой сцены через SceneScorer."""
+        try:
+            from src.modules.mod8_analysis.scene_scorer import SceneScorer
+            scorer = SceneScorer()
+            return scorer.score_scenes(video_path, scenes, analysis)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Скоринг сцен не удался: %s", exc)
+            return scenes  # fallback — без скоринга
 
     async def _run_analysis(self, video_path: Path, video_id: int) -> Dict[str, Any]:
         """Многослойный анализ через mod8_analysis.

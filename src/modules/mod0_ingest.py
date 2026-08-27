@@ -37,6 +37,8 @@ class IngestConfig(BaseModel):
     auto_rotate: bool = Field(True, description="авто-поворот по rotate/EXIF")
     extract_audio: bool = Field(True, description="извлекать аудио")
     audio_sample_rate: int = Field(16000, description="частота дискретизации аудио")
+    fast_mode: bool = Field(False, description="быстрый режим: анализ в 640x360")
+    analysis_resolution: List[int] = Field([640, 360], description="разрешение для анализа в быстром режиме")
 
 
 def build_ingest_config(config: Optional[Dict[str, Any]] = None) -> IngestConfig:
@@ -66,11 +68,33 @@ class VideoIngest0:
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         self.config = config or IngestConfig()
 
-    async def _run(self, cmd: List[str]) -> subprocess.CompletedProcess:
-        """Запускает subprocess и возвращает результат (без блокировки loop)."""
+    async def _run(self, cmd: List[str], timeout: int = 120) -> subprocess.CompletedProcess:
+        """Запускает subprocess и возвращает результат (без блокировки loop).
+
+        Args:
+            cmd: команда для выполнения.
+            timeout: таймаут в секундах (по умолчанию 120).
+        """
         return await asyncio.to_thread(
-            subprocess.run, cmd, capture_output=True, timeout=120
+            subprocess.run, cmd, capture_output=True, timeout=timeout
         )
+
+    def _get_dynamic_timeout(self, video_path: Path) -> int:
+        """Вычисляет динамический таймаут на основе длительности видео.
+
+        Формула: max(120, duration * 2), максимум 7200 сек (2 часа).
+        """
+        try:
+            import subprocess as sp
+            result = sp.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", str(video_path)],
+                capture_output=True, text=True, timeout=10
+            )
+            duration = float(result.stdout.strip() or "0")
+            return max(120, min(int(duration * 2), 7200))
+        except Exception:
+            return 120
 
     # ------------------------------------------------------------------ метаданные
     async def analyze_video(self, video_path: Path) -> Dict[str, Any]:
@@ -174,8 +198,9 @@ class VideoIngest0:
             "-an",  # без аудио на этом шаге
             str(output_path),
         ]
+        timeout = self._get_dynamic_timeout(video_path)
         try:
-            proc = await self._run(cmd)
+            proc = await self._run(cmd, timeout=timeout)
             if proc.returncode != 0:
                 raise RuntimeError(proc.stderr.decode(errors="ignore")[:300])
             return output_path.exists() and output_path.stat().st_size > 0
@@ -193,8 +218,9 @@ class VideoIngest0:
             "-ar", str(self.config.audio_sample_rate),
             str(output_path),
         ]
+        timeout = self._get_dynamic_timeout(video_path)
         try:
-            proc = await self._run(cmd)
+            proc = await self._run(cmd, timeout=timeout)
             if proc.returncode != 0:
                 raise RuntimeError(proc.stderr.decode(errors="ignore")[:300])
             if output_path.exists() and output_path.stat().st_size > 0:
@@ -203,6 +229,38 @@ class VideoIngest0:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Ошибка извлечения аудио %s: %s", video_path.name, exc)
             return None
+
+    # ------------------------------------------------------------------ детекция сцен
+    async def detect_scenes(self, video_path: Path) -> List[Dict[str, Any]]:
+        """Детектирует сцены в видео длиннее 5 минут через PySceneDetect.
+
+        Returns:
+            список словарей {start_sec, end_sec, duration_sec}.
+        """
+        try:
+            from scenedetect import open_video, SceneManager
+            from scenedetect.detectors import ContentDetector
+
+            video = open_video(str(video_path))
+            scene_manager = SceneManager()
+            scene_manager.add_detector(ContentDetector(threshold=27.0))
+            scene_manager.detect_scenes(video)
+            scene_list = scene_manager.get_scene_list()
+
+            scenes = []
+            for start, end in scene_list:
+                scenes.append({
+                    "start_sec": start.get_seconds(),
+                    "end_sec": end.get_seconds(),
+                    "duration_sec": end.get_seconds() - start.get_seconds(),
+                })
+            await ws_manager.broadcast(
+                f"  🎬 Детектировано {len(scenes)} сцен в {video_path.name}"
+            )
+            return scenes
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Детекция сцен не удалась (%s): %s", video_path.name, exc)
+            return []
 
     # ------------------------------------------------------------------ полный процесс
     async def process_video(self, video_path: Path) -> Dict[str, Any]:
@@ -226,13 +284,19 @@ class VideoIngest0:
             audio_path = await self.extract_audio(Path(normalized))
             audio_path = str(audio_path) if audio_path else None
 
+        # Детекция сцен для видео длиннее 5 минут.
+        scenes = []
+        duration = meta.get("duration", 0)
+        if duration > 300:
+            scenes = await self.detect_scenes(video_path)
+
         return {
             "success": True,
             "meta": meta,
             "normalized_path": normalized,
             "audio_path": audio_path,
-            "duration": meta.get("duration", 0),
-            "scenes": [],
+            "duration": duration,
+            "scenes": scenes,
             "transcript": [],
         }
 

@@ -864,7 +864,13 @@ async def _download_and_register_task(link_list: List[str]):
             process = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            await process.communicate()
+            # Динамический таймаут: максимум 3600с (1 час) на видео.
+            try:
+                await asyncio.wait_for(process.communicate(), timeout=3600)
+            except asyncio.TimeoutError:
+                process.kill()
+                await ws_manager.broadcast(f"    ⏰ Видео {i}: таймаут скачивания")
+                continue
             if process.returncode == 0:
                 # Ищем последний скачанный mp4.
                 mp4_files = sorted(DOWNLOAD_DIR.glob("*.mp4"), key=lambda p: p.stat().st_mtime)

@@ -115,6 +115,17 @@ class LearningEngine:
             logger.warning("Не удалось сохранить паттерны в БД: %s", exc)
             await ws_manager.broadcast(f"   ⚠️  Ошибка сохранения в БД: {exc}")
 
+        # Вычисляем оптимальные веса слоёв скоринга для этой категории.
+        try:
+            weights = self._compute_scoring_weights(video_files, category)
+            if weights:
+                self._save_scoring_weights(category, weights)
+                await ws_manager.broadcast(
+                    f"   ⚖️  Веса скоринга обновлены: {weights}"
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Не удалось вычислить веса скоринга: %s", exc)
+
         await ws_manager.broadcast(
             f"✅ Самообучение [{category}] завершено: извлечено {len(patterns)} паттернов. "
             f"Всего в хранилище: {self.store.count()}"
@@ -213,6 +224,57 @@ class LearningEngine:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Ошибка чтения паттернов из БД: %s", exc)
         return result
+
+    # ------------------------------------------------------------------ веса скоринга
+    def _compute_scoring_weights(
+        self,
+        video_files: List[Path],
+        category: str,
+    ) -> Dict[str, float]:
+        """Вычисляет оптимальные веса слоёв скоринга на основе референсов.
+
+        Анализирует характерные слои референсных клипов и вычисляет веса,
+        при которых эти слои дают наибольший вклад.
+        """
+        try:
+            from src.modules.mod8_analysis.scene_scorer import SceneScorer
+
+            scorer = SceneScorer()
+            layer_importance: Dict[str, float] = {k: 0.0 for k in scorer.weights}
+
+            for vf in video_files[:10]:  # ограничиваем для производительности
+                scenes = [{"start_sec": 0, "end_sec": 30, "duration_sec": 30}]
+                scored = scorer.score_scenes(vf, scenes)
+                if scored:
+                    layers = scored[0].get("layers", {})
+                    for layer, val in layers.items():
+                        if layer in layer_importance:
+                            layer_importance[layer] += val
+
+            # Нормализуем веса.
+            total = sum(layer_importance.values()) or 1.0
+            weights = {k: round(v / total, 3) for k, v in layer_importance.items()}
+            return weights
+        except Exception:
+            return {}
+
+    def _save_scoring_weights(self, category: str, weights: Dict[str, float]) -> None:
+        """Сохраняет веса скоринга в конфиг-файл категории."""
+        import json
+        config_dir = self.store_dir / "scoring_weights"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_path = config_dir / f"{category}.json"
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(weights, f, indent=2)
+
+    def get_scoring_weights(self, category: str) -> Optional[Dict[str, float]]:
+        """Загружает веса скоринга для категории."""
+        import json
+        config_path = self.store_dir / "scoring_weights" / f"{category}.json"
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return None
 
     # ------------------------------------------------------------------ поиск
     def find_similar(

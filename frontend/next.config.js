@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Увеличиваем лимит$body для загрузки больших видеофайлов (до 100 МБ).
+  experimental: {
+    serverComponentsExternalPackages: [],
+  },
   async rewrites() {
     // Проксируем запросы к API на бэкенд FastAPI (127.0.0.1:8000).
     return [
