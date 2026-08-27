@@ -63,7 +63,7 @@ class ConnectionManager:
         """Отправляет сообщение конкретному клиенту"""
         try:
             await websocket.send_text(message)
-        except:
+        except Exception:
             self.disconnect(websocket)
 
 # Глобальный экземпляр
