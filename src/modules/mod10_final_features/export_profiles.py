@@ -91,17 +91,20 @@ class ExportProfiles:
 
         # Видеофильтр для приведения к нужному aspect.
         # 9:16 → вертикальное; 16:9 → горизонтальное.
+        # Ключевой момент: scale с force_original_aspect_ratio=decrease
+        # уменьшает видео, чтобы оно влезло в целевые размеры, а pad
+        # добавляет чёрные полосы до точного разрешения.
         if aspect == "9:16":
             width = int(height * 9 / 16) // 2 * 2  # чётное
             vf = (
-                f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-                f"crop={width}:{height},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
+                f"scale={width}:-2:force_original_aspect_ratio=decrease,"
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
             )
         else:
             width = int(height * 16 / 9) // 2 * 2
             vf = (
-                f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-                f"crop={width}:{height},pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
+                f"scale=-2:{height}:force_original_aspect_ratio=decrease,"
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
             )
 
         return {
