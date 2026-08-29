@@ -725,10 +725,10 @@ async def api_batch_list(status: Optional[str] = None, db: Session = Depends(get
     return {"tasks": [_batch_to_dict(b) for b in batches]}
 
 
-async def run_batch_task(folder_id: int) -> None:
+async def run_batch_task(folder_id: int, settings: dict | None = None) -> None:
     """Фоновая задача пакетной обработки."""
     try:
-        await batch_processor.process_folder(folder_id)
+        await batch_processor.process_folder(folder_id, settings=settings)
     except Exception as exc:
         logger.exception("Ошибка пакетной обработки задачи %s", folder_id)
         await ws_manager.broadcast(f"❌ Ошибка пакетной обработки #{folder_id}: {exc}")
@@ -739,6 +739,8 @@ async def api_batch_process(
     folder_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    max_clips_per_video: int = Form(5),
+    fast_mode: bool = Form(False),
 ):
     """
     Запускает пакетную обработку папки в фоне.
@@ -762,7 +764,8 @@ async def api_batch_process(
     # Важно: используем background_tasks, внедрённый FastAPI, чтобы задача
     # выполнилась после ответа. Ранее создавался локальный объект, из-за чего
     # обработка фактически не стартовала.
-    background_tasks.add_task(run_batch_task, folder_id)
+    settings = {"max_clips_per_video": max_clips_per_video, "fast_mode": fast_mode}
+    background_tasks.add_task(run_batch_task, folder_id, settings)
     logger.info("Пакетная обработка задачи #%s поставлена в очередь", folder_id)
     return {
         "status": "started",

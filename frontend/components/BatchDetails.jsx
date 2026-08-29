@@ -45,7 +45,12 @@ export default function BatchDetails({ batchId }) {
     setStarting(true);
     setError("");
     try {
-      await api.batchProcess(batchId);
+      let settings = {};
+      try {
+        const saved = localStorage.getItem('autoclip_settings');
+        if (saved) settings = JSON.parse(saved);
+      } catch {}
+      await api.batchProcess(batchId, settings);
       setTimeout(loadData, 500);
     } catch (e) {
       setError(e.message);

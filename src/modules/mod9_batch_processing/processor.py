@@ -54,7 +54,7 @@ class BatchProcessor:
         self._stop_event = asyncio.Event()
 
     # ------------------------------------------------------------------ обработка
-    async def process_folder(self, folder_id: int) -> Dict[str, Any]:
+    async def process_folder(self, folder_id: int, settings: dict | None = None) -> Dict[str, Any]:
         """
         Обрабатывает все "pending" видео пакетной задачи.
 
@@ -63,6 +63,7 @@ class BatchProcessor:
         результат в БД.
         """
         import time
+        self._settings = settings or {}
         await self._broadcast(f"🚀 Запуск пакетной обработки задачи #{folder_id}")
         await self._set_batch_status(folder_id, "processing")
 
@@ -170,11 +171,14 @@ class BatchProcessor:
         чтобы последующие шаги продолжили работу.
         """
         try:
-            from src.modules.mod0_ingest import VideoIngest0, build_ingest_config
+            from src.modules.mod0_ingest import VideoIngest0, IngestConfig
             from src.core.config_loader import load_config
 
             config = load_config()
-            ingest = VideoIngest0(self.work_dir, build_ingest_config(config))
+            ingest_cfg = IngestConfig(
+                fast_mode=self._settings.get("fast_mode", False),
+            )
+            ingest = VideoIngest0(self.work_dir, ingest_cfg)
             result = await ingest.process_video(video_path)
             if result.get("success"):
                 return result
@@ -336,11 +340,17 @@ class BatchProcessor:
                 await self._broadcast("  ⚠️  Нет обработанных видео для композиции")
                 return
 
+            max_clips = self._settings.get("max_clips_per_video", 5)
             plans = self.composer.compose_clips(
                 fragments,
                 output_dir=self.output_dir,
                 prefix="composed",
             )
+            if len(plans) > max_clips:
+                plans = plans[:max_clips]
+                await self._broadcast(
+                    f"  📊 Ограничено до {max_clips} композиций (настройка)"
+                )
             await self._broadcast(f"  💡 Создано композиций: {len(plans)}")
 
             with session_scope() as db:

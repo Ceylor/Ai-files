@@ -99,8 +99,16 @@ export const api = {
       body: new URLSearchParams({ links }).toString(),
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
     }),
-  batchProcess: (id) =>
-    request(`/api/batch/process/${id}`, { method: "POST" }),
+  batchProcess: (id, settings = {}) => {
+    const body = new URLSearchParams();
+    if (settings.maxClipsPerVideo) body.append('max_clips_per_video', settings.maxClipsPerVideo);
+    if (settings.fastMode) body.append('fast_mode', 'true');
+    return request(`/api/batch/process/${id}`, {
+      method: "POST",
+      body: body.toString(),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+  },
   batchStatus: (id) => request(`/api/batch/status/${id}`),
   batchResults: (id) => request(`/api/batch/results/${id}`),
   batchList: () => request("/api/batch/list"),
