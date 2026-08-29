@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from src.core.config_loader import load_config
+from src.utils.logger import ws_manager
 
 logger = logging.getLogger("mod0_ingest")
 

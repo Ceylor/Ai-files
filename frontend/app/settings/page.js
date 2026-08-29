@@ -21,6 +21,8 @@ export default function SettingsPage() {
     similarityThreshold: 0.75,
     maxClusterSize: 5,
     category: "default",
+    maxClipsPerVideo: 5,
+    fastMode: false,
   });
   const [saved, setSaved] = useState(false);
 
@@ -104,6 +106,33 @@ export default function SettingsPage() {
                     onChange={(e) => update("category", e.target.value)}
                     className={inputCls}
                   />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--text)]">
+                    Макс. клипов из одного видео
+                  </label>
+                  <input
+                    type="number"
+                    value={settings.maxClipsPerVideo}
+                    onChange={(e) => update("maxClipsPerVideo", Number(e.target.value))}
+                    min={1}
+                    max={20}
+                    className={inputCls}
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 pt-6">
+                  <input
+                    type="checkbox"
+                    id="fastMode"
+                    checked={settings.fastMode}
+                    onChange={(e) => update("fastMode", e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <label htmlFor="fastMode" className="text-sm font-medium text-[var(--text)]">
+                    Быстрый режим (анализ в 640×360)
+                  </label>
                 </div>
               </div>
 

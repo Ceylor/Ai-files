@@ -84,12 +84,21 @@ export default function BatchDetails({ batchId }) {
         )}
       </div>
 
-      {/* Прогресс */}
+            {/* Прогресс */}
       <div className="mt-4">
         <div className="mb-1 flex justify-between text-xs text-[var(--text-muted)]">
           <span>Прогресс</span>
           <span>{percent}%</span>
         </div>
+        {isRunning && status?.total_videos > 0 && (
+          <div className="mb-1 text-xs text-[var(--text-muted)]">
+            {'Осталось примерно '}
+            {Math.floor(((status.total_videos - (status.processed_videos || 0)) * 30) / 60) > 0
+              ? Math.floor(((status.total_videos - (status.processed_videos || 0)) * 30) / 60) + 'м '
+              : ''}
+            {Math.round(((status.total_videos - (status.processed_videos || 0)) * 30) % 60)}с
+          </div>
+        )}
         <div className="h-3 w-full overflow-hidden rounded-full bg-black/5 ring-1 ring-black/10 dark:bg-white/5 dark:ring-white/10">
           <motion.div
             className="h-full rounded-full bg-gradient-to-r from-neon-cyan via-neon-violet to-neon-fuchsia shadow-neon-cyan"

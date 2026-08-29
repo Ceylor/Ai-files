@@ -139,6 +139,9 @@ export default function UploadFolderForm({ onCreated }) {
             onChange={(e) => setFiles(Array.from(e.target.files || []))}
             className={inputCls}
           />
+          <p className="mt-1 text-xs text-[var(--text-muted)]">
+            💡 Для файлов {'>'}1 ГБ (фильмы) используйте загрузку через папку — это самый надёжный способ
+          </p>
           {files.length > 0 && (
             <p className="mt-2 text-xs text-[var(--text-muted)]">
               Выбрано файлов: {files.length}

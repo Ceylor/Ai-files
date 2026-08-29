@@ -445,6 +445,16 @@ async def _download_links_task(category: str, link_list: List[str]):
     for i, link in enumerate(link_list, 1):
         await ws_manager.broadcast(f"    📥 Скачивание {i}/{len(link_list)}...")
         try:
+            # Динамический таймаут для длинных видео.
+            duration = await _get_video_duration(link)
+            if duration > 0:
+                timeout = max(3600, min(int(duration * 3), 14400))
+                await ws_manager.broadcast(
+                    f"    ⏱  Видео: ~{int(duration // 60)} мин, таймаут: {int(timeout // 60)} мин"
+                )
+            else:
+                timeout = 7200
+
             cmd = [
                 "yt-dlp",
                 "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
@@ -456,7 +466,12 @@ async def _download_links_task(category: str, link_list: List[str]):
             process = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            await process.communicate()
+            try:
+                await asyncio.wait_for(process.communicate(), timeout=timeout)
+            except asyncio.TimeoutError:
+                process.kill()
+                await ws_manager.broadcast(f"    ⏰ Видео {i}: таймаут скачивания")
+                continue
             if process.returncode == 0:
                 await ws_manager.broadcast(f"    ✅ Видео {i} скачано")
             else:
@@ -845,6 +860,32 @@ async def api_batch_download_links(
     return {"status": "started", "count": len(link_list)}
 
 
+async def _get_video_duration(url: str) -> float:
+    """Запрашивает длительность видео через yt-dlp (без скачивания).
+
+    Returns:
+        Длительность в секундах (или 0.0 при ошибке).
+    """
+    try:
+        cmd = ["yt-dlp", "--get-duration", "--no-download", url]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+        duration_str = stdout.decode(errors="ignore").strip()
+        if duration_str:
+            parts = duration_str.split(":")
+            if len(parts) == 3:
+                return float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+            elif len(parts) == 2:
+                return float(parts[0]) * 60 + float(parts[1])
+            else:
+                return float(parts[0])
+    except Exception:
+        pass
+    return 0.0
+
+
 async def _download_and_register_task(link_list: List[str]):
     """Скачивает видео по ссылкам и регистрирует их в новой пакетной задаче."""
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -852,6 +893,22 @@ async def _download_and_register_task(link_list: List[str]):
     for i, link in enumerate(link_list, 1):
         await ws_manager.broadcast(f"    📥 Скачивание {i}/{len(link_list)}...")
         try:
+            # Динамический таймаут: запрашиваем длительность и устанавливаем
+            # max(3600, duration * 3), максимум 14400с (4 часа).
+            duration = await _get_video_duration(link)
+            if duration > 0:
+                timeout = max(3600, min(int(duration * 3), 14400))
+                dur_min = int(duration // 60)
+                tout_min = int(timeout // 60)
+                await ws_manager.broadcast(
+                    f"    ⏱  Видео: ~{dur_min} мин, таймаут: {tout_min} мин"
+                )
+            else:
+                timeout = 7200  # 2 часа по умолчанию, если длительность неизвестна
+                await ws_manager.broadcast(
+                    f"    ⏱  Длительность неизвестна, таймаут: 120 мин"
+                )
+
             cmd = [
                 "yt-dlp",
                 "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
@@ -864,21 +921,33 @@ async def _download_and_register_task(link_list: List[str]):
             process = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            # Динамический таймаут: максимум 3600с (1 час) на видео.
             try:
-                await asyncio.wait_for(process.communicate(), timeout=3600)
+                await asyncio.wait_for(process.communicate(), timeout=timeout)
             except asyncio.TimeoutError:
                 process.kill()
-                await ws_manager.broadcast(f"    ⏰ Видео {i}: таймаут скачивания")
+                await ws_manager.broadcast(f"    ⏰ Видео {i}: таймаут скачивания ({timeout}с)")
                 continue
             if process.returncode == 0:
-                # Ищем последний скачанный mp4.
+                # Ищем последний скачанный mp4 и проверяем целостность.
                 mp4_files = sorted(DOWNLOAD_DIR.glob("*.mp4"), key=lambda p: p.stat().st_mtime)
                 if mp4_files:
                     latest = mp4_files[-1]
-                    if latest not in downloaded:
+                    file_size = latest.stat().st_size
+                    if file_size == 0:
+                        await ws_manager.broadcast(
+                            f"    ❌ Видео {i}: файл повреждён (0 байт), пропуск"
+                        )
+                        latest.unlink(missing_ok=True)
+                    elif latest not in downloaded:
                         downloaded.append(latest)
-                await ws_manager.broadcast(f"    ✅ Видео {i} скачано")
+                        size_mb = file_size / (1024 * 1024)
+                        await ws_manager.broadcast(
+                            f"    ✅ Видео {i} скачано ({size_mb:.1f} МБ)"
+                        )
+                    else:
+                        await ws_manager.broadcast(f"    ✅ Видео {i} скачано")
+                else:
+                    await ws_manager.broadcast(f"    ⚠️  Видео {i}: mp4 файл не найден")
             else:
                 await ws_manager.broadcast(f"    ⚠️  Видео {i}: ошибка скачивания")
         except Exception as exc:  # noqa: BLE001
