@@ -50,6 +50,8 @@ def _configure_sqlite(engine: Engine) -> None:
         try:
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
             cursor.close()
         except Exception:  # noqa: BLE001
             pass

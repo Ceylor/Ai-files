@@ -20,7 +20,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.utils.logger import ws_manager
+from src.utils.logger import ws_manager, batch_ws_manager
 from src.database.session import session_scope
 from src.database import crud as db_crud
 from src.modules.mod9_batch_processing.composer import ClipComposer
@@ -44,6 +44,7 @@ class BatchProcessor:
         output_dir: Path,
         category: str = "default",
         similarity_threshold: float = 0.75,
+        concurrency_limit: int = 2,
     ) -> None:
         self.work_dir = Path(work_dir)
         self.output_dir = Path(output_dir)
@@ -52,6 +53,7 @@ class BatchProcessor:
         self.category = category
         self.composer = ClipComposer(similarity_threshold=similarity_threshold)
         self._stop_event = asyncio.Event()
+        self._semaphore = asyncio.Semaphore(concurrency_limit)
 
     # ------------------------------------------------------------------ обработка
     async def process_folder(self, folder_id: int, settings: dict | None = None) -> Dict[str, Any]:
@@ -64,6 +66,7 @@ class BatchProcessor:
         """
         import time
         self._settings = settings or {}
+        self._current_folder_id = folder_id
         await self._broadcast(f"🚀 Запуск пакетной обработки задачи #{folder_id}")
         await self._set_batch_status(folder_id, "processing")
 
@@ -80,11 +83,26 @@ class BatchProcessor:
                     break
                 try:
                     start = time.monotonic()
-                    await self._process_one(video, folder_id)
+                    async with self._semaphore:
+                        await self._process_one(video, folder_id)
                     elapsed = time.monotonic() - start
                     total_time += elapsed
                     processed += 1
                     await self._update_batch_progress(folder_id, processed)
+
+                    # Отправляем прогресс в batch WebSocket.
+                    if batch_ws_manager.has_listeners(folder_id):
+                        import json as _json
+                        await batch_ws_manager.send_to_task(
+                            folder_id,
+                            _json.dumps({
+                                "type": "progress",
+                                "processed": processed,
+                                "total": total,
+                                "percent": round(pct, 1),
+                                "remaining_seconds": round(remaining),
+                            }, ensure_ascii=False),
+                        )
 
                     # Прогресс и оставшееся время.
                     pct = (processed / total) * 100 if total else 0
@@ -432,3 +450,10 @@ class BatchProcessor:
     async def _broadcast(self, message: str) -> None:
         await ws_manager.broadcast(message)
         logger.info(message)
+        # Отправляем также целевому batch WebSocket (если есть слушатели).
+        if hasattr(self, "_current_folder_id") and batch_ws_manager.has_listeners(self._current_folder_id):
+            import json as _json
+            await batch_ws_manager.send_to_task(
+                self._current_folder_id,
+                _json.dumps({"type": "log", "message": message}, ensure_ascii=False),
+            )

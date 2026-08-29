@@ -3,12 +3,14 @@ FastAPI Backend для AI AutoClip Pro 2.0
 Многослойный анализ контента, самообучение, категории, видео, монтаж, пакетная обработка.
 """
 import json
+import os
 import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 from fastapi import (
+    Request,
     FastAPI, WebSocket, UploadFile, File, WebSocketDisconnect,
     Form, HTTPException, Depends, BackgroundTasks,
 )
@@ -17,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 import aiofiles
 
 from src.core.pipeline import run_pipeline
-from src.utils.logger import ws_manager
+from src.utils.logger import ws_manager, batch_ws_manager
 from src.utils.style_profiler import analyze_reference_clips
 from src.utils.auto_tagger import analyze_music_library
 from src.utils.security import sanitize_filename, sanitize_category
@@ -32,6 +34,9 @@ from src.modules.mod9_batch_processing.processor import BatchProcessor
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger("api.main")
+
+# Максимальный размер загружаемого файла (по умолчанию 2 ГБ).
+MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE", str(2 * 1024 * 1024 * 1024)))
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 WEB_UI_DIR = BASE_DIR / "web_ui"
@@ -57,7 +62,28 @@ async def lifespan(app: FastAPI):
     yield
 
 
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="AI AutoClip Pro - Multi-Category", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS middleware (настраивается через CORS_ORIGINS в .env).
+from fastapi.middleware.cors import CORSMiddleware
+_cors_origins_str = os.getenv("CORS_ORIGINS", "")
+_cors_origins = [o.strip() for o in _cors_origins_str.split(",") if o.strip()] if _cors_origins_str else []
+if not _cors_origins:
+    _cors_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Движок самообучения (непрерывное накопление паттернов).
 learning_engine = LearningEngine(LEARNING_STORE_DIR)
@@ -91,6 +117,19 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
+
+
+@app.websocket("/ws/batch/{task_id}")
+async def websocket_batch_endpoint(websocket: WebSocket, task_id: int):
+    """WebSocket для отслеживания прогресса конкретной batch-задачи."""
+    await batch_ws_manager.connect(websocket, task_id)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        batch_ws_manager.disconnect(websocket, task_id)
 
 
 # ==============================================================================
@@ -413,6 +452,12 @@ async def upload_references(
     saved = []
     for file in files:
         safe_name = sanitize_filename(file.filename)
+        if file.size and file.size > MAX_UPLOAD_SIZE:
+            max_mb = MAX_UPLOAD_SIZE // (1024 * 1024)
+            raise HTTPException(
+                status_code=413,
+                detail=f"Файл '{safe_name}' слишком большой. Максимум: {max_mb} МБ",
+            )
         file_path = cat_dir / safe_name
         async with aiofiles.open(file_path, "wb") as out_file:
             content = await file.read()
@@ -673,7 +718,9 @@ def _batch_to_dict(b) -> dict:
 
 
 @app.post("/api/batch/upload_folder")
+@limiter.limit("5/minute")
 async def api_batch_upload_folder(
+    request: Request,
     folder_path: str = Form(...),
     db: Session = Depends(get_db),
 ):
@@ -775,7 +822,9 @@ async def api_batch_process(
 
 
 @app.post("/api/batch/upload_files")
+@limiter.limit("5/minute")
 async def api_batch_upload_files(
+    request: Request,
     files: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
 ):
@@ -841,7 +890,9 @@ async def api_batch_upload_files(
 
 
 @app.post("/api/batch/download_links")
+@limiter.limit("5/minute")
 async def api_batch_download_links(
+    request: Request,
     links: str = Form(...),
     db: Session = Depends(get_db),
 ):

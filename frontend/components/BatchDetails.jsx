@@ -20,8 +20,43 @@ export default function BatchDetails({ batchId }) {
   useEffect(() => {
     if (!batchId) return;
     loadData();
-    const interval = setInterval(loadData, 3000);
-    return () => clearInterval(interval);
+
+    // Подключаемся к WebSocket для обновлений в реальном времени.
+    let ws = null;
+    try {
+      const wsUrl = (window.location.protocol === "https:" ? "wss:" : "ws:")
+        + "//" + window.location.host + "/ws/batch/" + batchId;
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "progress") {
+            setStatus((prev) => prev ? {
+              ...prev,
+              processed_videos: data.processed,
+              total_videos: data.total,
+            } : prev);
+          }
+          if (data.type === "log") {
+            // Логи обновляются через основной WebSocket /ws/logs.
+          }
+        } catch {}
+      };
+      ws.onerror = () => {};
+      ws.onclose = () => {};
+      // Ping для поддержания соединения.
+      const pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) ws.send("ping");
+      }, 30000);
+      return () => {
+        clearInterval(pingInterval);
+        if (ws) ws.close();
+      };
+    } catch {
+      // Fallback: poll каждые 3 сек.
+    }
+
+    return () => {};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchId]);
 

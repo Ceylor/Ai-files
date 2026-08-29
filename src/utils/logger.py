@@ -68,3 +68,41 @@ class ConnectionManager:
 
 # Глобальный экземпляр
 ws_manager = ConnectionManager()
+
+class BatchConnectionManager:
+    """Управляет WebSocket подключениями для конкретных задач (batch_id)."""
+    
+    def __init__(self):
+        self._connections: dict[int, list[WebSocket]] = {}
+    
+    async def connect(self, websocket: WebSocket, task_id: int):
+        await websocket.accept()
+        if task_id not in self._connections:
+            self._connections[task_id] = []
+        self._connections[task_id].append(websocket)
+    
+    def disconnect(self, websocket: WebSocket, task_id: int):
+        if task_id in self._connections:
+            self._connections[task_id] = [
+                ws for ws in self._connections[task_id] if ws != websocket
+            ]
+            if not self._connections[task_id]:
+                del self._connections[task_id]
+    
+    async def send_to_task(self, task_id: int, message: str):
+        """Отправляет сообщение всем клиентам, следящим за задачей."""
+        if task_id not in self._connections:
+            return
+        disconnected = []
+        for ws in self._connections[task_id]:
+            try:
+                await ws.send_text(message)
+            except Exception:
+                disconnected.append(ws)
+        for ws in disconnected:
+            self.disconnect(ws, task_id)
+    
+    def has_listeners(self, task_id: int) -> bool:
+        return bool(self._connections.get(task_id))
+
+batch_ws_manager = BatchConnectionManager()
