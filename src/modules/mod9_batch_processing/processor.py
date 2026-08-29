@@ -54,6 +54,7 @@ class BatchProcessor:
         self.composer = ClipComposer(similarity_threshold=similarity_threshold)
         self._stop_event = asyncio.Event()
         self._semaphore = asyncio.Semaphore(concurrency_limit)
+        self._settings: dict = {}
 
     # ------------------------------------------------------------------ обработка
     async def process_folder(self, folder_id: int, settings: dict | None = None) -> Dict[str, Any]:
