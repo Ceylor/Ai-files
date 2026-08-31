@@ -1,0 +1,39 @@
+{
+  "profiles": {
+    "fast": {
+      "analysis_resolution": "320x180",
+      "whisper_model": "tiny",
+      "whisper_compute_type": "int8",
+      "yolo_model": "yolov8n",
+      "clip_batch_size": 1,
+      "scene_detection_threshold": 30,
+      "max_concurrent_videos": 1,
+      "ffmpeg_preset": "ultrafast",
+      "chunk_duration_seconds": 180
+    },
+    "normal": {
+      "analysis_resolution": "640x360",
+      "whisper_model": "small",
+      "whisper_compute_type": "int8",
+      "yolo_model": "yolov8n",
+      "clip_batch_size": 4,
+      "scene_detection_threshold": 27,
+      "max_concurrent_videos": 1,
+      "ffmpeg_preset": "fast",
+      "chunk_duration_seconds": 300
+    },
+    "quality": {
+      "analysis_resolution": "1280x720",
+      "whisper_model": "medium",
+      "whisper_compute_type": "float16",
+      "yolo_model": "yolov8m",
+      "clip_batch_size": 8,
+      "scene_detection_threshold": 25,
+      "max_concurrent_videos": 2,
+      "ffmpeg_preset": "medium",
+      "chunk_duration_seconds": 420
+    }
+  },
+  "default": "normal",
+  "chunk_duration_seconds": 300
+}

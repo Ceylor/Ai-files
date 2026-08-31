@@ -89,11 +89,17 @@ def check_main_import() -> list:
 
 
 def check_endpoints() -> list:
-    """Проверяет наличие ключевых эндпоинтов в main.py."""
+    """Проверяет наличие ключевых эндпоинтов в работающем app."""
     errors = []
-    main_text = (SRC / "api" / "main.py").read_text(encoding="utf-8")
+    try:
+        sys.path.insert(0, str(ROOT))
+        import src.api.main as main_mod  # noqa: F401
+        openapi_paths = set(main_mod.app.openapi()["paths"].keys())
+    except Exception as exc:  # noqa: BLE001
+        return [f"[ENDPOINT] не удалось получить пути app: {exc}"]
     for ep in REQUIRED_ENDPOINTS:
-        if ep not in main_text:
+        path = ep.strip('"')
+        if path not in openapi_paths:
             errors.append(f"[ENDPOINT] отсутствует: @app... {ep}")
     return errors
 

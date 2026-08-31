@@ -9,21 +9,23 @@ import asyncio
 from pathlib import Path
 from typing import Dict, List, Any
 from src.utils.logger import ws_manager
+from src.utils.gpu_detector import gpu
 
 class VideoIngestion:
     """Класс для загрузки и предварительной обработки видео"""
     
     # Кэш модели Whisper (загружается один раз)
     _whisper_model = None
+    _whisper_device_used: str | None = None
     
     def __init__(self, temp_dir: Path, whisper_model: str = "small", 
-                 whisper_device: str = "cpu", whisper_compute_type: str = "int8"):
+                 whisper_device: str | None = None, whisper_compute_type: str | None = None):
         self.temp_dir = temp_dir
         self.temp_dir.mkdir(parents=True, exist_ok=True)
-        # 3.6 FIX: параметры Whisper теперь настраиваемые (device может быть "cuda")
         self.whisper_model_name = whisper_model
-        self.whisper_device = whisper_device
-        self.whisper_compute_type = whisper_compute_type
+        # Auto-detect GPU/CPU if not explicitly specified
+        self.whisper_device = whisper_device or gpu.get_whisper_device()
+        self.whisper_compute_type = whisper_compute_type or gpu.get_whisper_compute_type()
     
     async def process_video(self, video_path: Path) -> Dict[str, Any]:
         """
@@ -54,9 +56,15 @@ class VideoIngestion:
             # Шаг 2: Получение длительности
             result["duration"] = await self._get_duration(video_path)
             
+            # Шаг 3: VAD-trimming тишины перед транскрибацией (экономит время/память).
+            await ws_manager.broadcast(f"   🗣️ VAD-фильтр тишины...")
+            trimmed_audio, time_offset = await self._trim_silence(audio_path)
+            result["audio_path"] = str(trimmed_audio) if trimmed_audio else str(audio_path)
+            
             # Шаг 3: Транскрибация (Whisper)
             await ws_manager.broadcast(f"   ️ Распознавание речи (Whisper)...")
-            result["transcript"] = await self._transcribe_audio(audio_path)
+            effective_audio = trimmed_audio if trimmed_audio else audio_path
+            result["transcript"] = await self._transcribe_audio(effective_audio, time_offset=time_offset)
             
             # Шаг 4: Детекция сцен
             await ws_manager.broadcast(f"   ✂️ Детекция сцен...")
@@ -97,6 +105,59 @@ class VideoIngestion:
         
         return audio_path
     
+    async def _trim_silence(self, audio_path: Path) -> tuple:
+        """
+        Обнаруживает речевые сегменты и обрезает длинную тишину,
+        чтобы уменьшить объём данных, передаваемых в Whisper.
+
+        Returns:
+            (trimmed_audio_path_or_None, time_offset_sec)
+            Если тишины не найдено или обработка не удалась — (None, 0.0).
+        """
+        try:
+            import librosa
+            import numpy as np
+            import soundfile as sf
+
+            # Загружаем моно-аудио (уже 16kHz, mono после FFmpeg).
+            y, sr = librosa.load(str(audio_path), sr=None)
+            if len(y) == 0:
+                return None, 0.0
+
+            # Обнаружение речи по энергии (split возвращает интервалы [start, end] в сэмплах).
+            intervals = librosa.effects.split(
+                y,
+                top_db=30,          # порог тишины, дБ
+                frame_length=2048,  # Берём достаточно длинное окно,
+                hop_length=512,     # чтобы не резать по коротким паузам в речи.
+            )
+
+            if len(intervals) == 0:
+                return None, 0.0
+
+            # Определяем начальный сэмпл (начало первой речи).
+            start_sample = int(intervals[0, 0])
+            # Оставляем небольшой отступ перед речью (примерно 50 мс), чтобы не срезать начало слова.
+            start_sample = max(0, start_sample - int(0.05 * sr))
+
+            # Если тишина в начале незначительна (< 0.3с) — не обрезаем.
+            if start_sample < 0.3 * sr:
+                return None, 0.0
+
+            trimmed = y[start_sample:]
+            out_path = audio_path.with_name(f"{audio_path.stem}_vad.wav")
+            sf.write(str(out_path), trimmed, sr)
+
+            time_offset = start_sample / sr
+            saved_sec = start_sample / sr
+            await ws_manager.broadcast(
+                f"   ✂️ VAD: обрезано тишины в начале {saved_sec:.1f}с"
+            )
+            return out_path, time_offset
+        except Exception as exc:  # noqa: BLE001
+            await ws_manager.broadcast(f"   ⚠️  VAD-trimming пропущен: {exc}")
+            return None, 0.0
+
     async def _get_duration(self, video_path: Path) -> float:
         """Получает длительность видео через ffprobe"""
         cmd = [
@@ -119,18 +180,37 @@ class VideoIngestion:
         else:
             return 0.0
     
-    async def _transcribe_audio(self, audio_path: Path) -> List[Dict]:
+    async def _transcribe_audio(self, audio_path: Path, time_offset: float = 0.0) -> List[Dict]:
         """
-        Транскрибирует аудио через faster-whisper с улучшенными настройками
+        Транскрибирует аудио через faster-whisper с улучшенными настройками.
+
+        Args:
+            audio_path: путь к WAV-файлу (возможно, уже обрезанному VAD).
+            time_offset: смещение в сек, добавленное при VAD-trimming; прибавляется
+                к таймкодам сегментов, чтобы вернуть их в исходную шкалу времени.
         """
         try:
             from faster_whisper import WhisperModel
             import re
             
-            # Загружаем модель один раз и кэшируем (small для баланса скорости/качества)
-            if VideoIngestion._whisper_model is None:
-                await ws_manager.broadcast("   📦 Загрузка модели Whisper (small)...")
-                VideoIngestion._whisper_model = WhisperModel("small", device="cpu", compute_type="int8")
+            # Загружаем модель один раз и кэшируем.
+            # If device changed (e.g. first run had no GPU, now has one), reload.
+            if (VideoIngestion._whisper_model is None 
+                    or VideoIngestion._whisper_device_used != self.whisper_device):
+                device_label = "GPU" if self.whisper_device == "cuda" else "CPU"
+                await ws_manager.broadcast(
+                    f"   📦 Загрузка модели Whisper ({self.whisper_model_name}, {device_label}, {self.whisper_compute_type})..."
+                )
+                # Free old model if device changed
+                if VideoIngestion._whisper_model is not None:
+                    del VideoIngestion._whisper_model
+                    VideoIngestion._whisper_model = None
+                VideoIngestion._whisper_model = WhisperModel(
+                    self.whisper_model_name,
+                    device=self.whisper_device,
+                    compute_type=self.whisper_compute_type,
+                )
+                VideoIngestion._whisper_device_used = self.whisper_device
             
             model = VideoIngestion._whisper_model
             
@@ -159,10 +239,12 @@ class VideoIngestion:
                 
                 if text:  # Только непустые сегменты
                     transcript.append({
-                        "start": segment.start,
-                        "end": segment.end,
+                        "start": round(segment.start + time_offset, 3),
+                        "end": round(segment.end + time_offset, 3),
                         "text": text,
-                        "words": [{"start": w.start, "end": w.end, "word": w.word} 
+                        "words": [{"start": round(w.start + time_offset, 3),
+                                  "end": round(w.end + time_offset, 3),
+                                  "word": w.word}
                                  for w in segment.words] if segment.words else []
                     })
             

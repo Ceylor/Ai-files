@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 
 from src.modules.mod8_analysis.schemas import DetectedObject
+from src.utils.gpu_detector import gpu
 
 logger = logging.getLogger("analysis.object")
 
@@ -38,9 +39,10 @@ class ObjectDetector:
         try:
             from ultralytics import YOLO  # type: ignore
 
+            device = gpu.get_yolo_device()
             self._backend = "yolo"
-            self._model = {"yolo": YOLO("yolov8n.pt")}
-            logger.info("ObjectDetector: бэкенд YOLOv8 активен")
+            self._model = {"yolo": YOLO("yolov8n.pt"), "device": device}
+            logger.info("ObjectDetector: бэкенд YOLOv8 активен (device=%s)", device)
             return True
         except Exception as exc:  # noqa: BLE001
             logger.debug("YOLO недоступен: %s", exc)
@@ -55,7 +57,8 @@ class ObjectDetector:
         try:
             if self._backend == "yolo":
                 model = self._model["yolo"]
-                detections = model(bgr_frame, verbose=False)
+                device = self._model["device"]
+                detections = model(bgr_frame, verbose=False, device=device)
                 for det in detections:
                     boxes = det.boxes
                     if boxes is None:

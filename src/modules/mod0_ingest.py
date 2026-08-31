@@ -40,21 +40,49 @@ class IngestConfig(BaseModel):
     audio_sample_rate: int = Field(16000, description="частота дискретизации аудио")
     fast_mode: bool = Field(False, description="быстрый режим: анализ в 640x360")
     analysis_resolution: List[int] = Field([640, 360], description="разрешение для анализа в быстром режиме")
+    ffmpeg_preset: str = Field("fast", description="пресет кодирования FFmpeg (ultrafast/fast/medium)")
 
 
-def build_ingest_config(config: Optional[Dict[str, Any]] = None) -> IngestConfig:
-    """Строит IngestConfig из dict (или fallback-конфигурацию по умолчанию)."""
+def build_ingest_config(config: Optional[Dict[str, Any]] = None,
+                        performance: Optional[Dict[str, Any]] = None) -> IngestConfig:
+    """Строит IngestConfig из dict (или fallback-конфигурацию по умолчанию).
+
+    Args:
+        config: основной YAML-конфиг.
+        performance: профиль производительности (fast/normal/quality) из
+            load_performance_config(). Его значения имеют приоритет.
+    """
     if not config:
-        return IngestConfig()
-    ingest = config.get("ingest", {}) if isinstance(config, dict) else {}
+        base = {}
+    else:
+        base = config.get("ingest", {}) if isinstance(config, dict) else {}
+
+    # Применяем профиль производительности поверх.
+    preset = base.get("ffmpeg_preset", "fast")
+    analysis_res = list(base.get("analysis_resolution", [640, 360]))
+    if performance:
+        if performance.get("ffmpeg_preset"):
+            preset = performance["ffmpeg_preset"]
+        if performance.get("analysis_resolution"):
+            try:
+                w, h = performance["analysis_resolution"].lower().split("x")
+                analysis_res = [int(w), int(h)]
+            except Exception:  # noqa: BLE001
+                pass
+
+    fast_mode = bool(base.get("fast_mode", False)) or preset in ("ultrafast",)
+
     return IngestConfig(
-        target_fps=ingest.get("target_fps", 30),
-        interpolate=ingest.get("interpolate", True),
-        target_resolution=list(ingest.get("target_resolution", [1080, 1920])),
-        pad=ingest.get("pad", True),
-        auto_rotate=ingest.get("auto_rotate", True),
-        extract_audio=ingest.get("extract_audio", True),
-        audio_sample_rate=ingest.get("audio_sample_rate", 16000),
+        target_fps=base.get("target_fps", 30),
+        interpolate=base.get("interpolate", True),
+        target_resolution=list(base.get("target_resolution", [1080, 1920])),
+        pad=base.get("pad", True),
+        auto_rotate=base.get("auto_rotate", True),
+        extract_audio=base.get("extract_audio", True),
+        audio_sample_rate=base.get("audio_sample_rate", 16000),
+        analysis_resolution=analysis_res,
+        ffmpeg_preset=preset,
+        fast_mode=fast_mode,
     )
 
 
@@ -195,7 +223,7 @@ class VideoIngest0:
         cmd = [
             "ffmpeg", "-y", "-i", str(video_path),
             "-vf", vf,
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:v", "libx264", "-preset", self.config.ffmpeg_preset, "-crf", "23",
             "-an",  # без аудио на этом шаге
             str(output_path),
         ]

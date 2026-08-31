@@ -3,9 +3,13 @@
 
 Читает конфигурацию из YAML (configs/config.yaml) с graceful fallback
 на значения по умолчанию, если файл отсутствует или повреждён.
+
+Также загружает конфигурацию производительности (configs/performance.json)
+с профилями fast/normal/quality.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -15,6 +19,7 @@ logger = logging.getLogger("core.config_loader")
 
 # Путь к конфигу по умолчанию (относительно корня проекта).
 DEFAULT_CONFIG_PATH = Path("configs/config.yaml")
+PERFORMANCE_CONFIG_PATH = Path("configs/performance.json")
 
 # Значения по умолчанию, если YAML отсутствует/повреждён.
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -137,3 +142,85 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Ошибка загрузки конфига %s (%s), использую дефолт.", path, exc)
         return dict(DEFAULT_CONFIG)
+
+
+# Профили производительности по умолчанию (fallback при отсутствии performance.json).
+_DEFAULT_PERFORMANCE: Dict[str, Any] = {
+    "profiles": {
+        "fast": {
+            "analysis_resolution": "320x180",
+            "whisper_model": "tiny",
+            "whisper_compute_type": "int8",
+            "yolo_model": "yolov8n",
+            "clip_batch_size": 1,
+            "scene_detection_threshold": 30,
+            "max_concurrent_videos": 1,
+            "ffmpeg_preset": "ultrafast",
+            "chunk_duration_seconds": 180,
+        },
+        "normal": {
+            "analysis_resolution": "640x360",
+            "whisper_model": "small",
+            "whisper_compute_type": "int8",
+            "yolo_model": "yolov8n",
+            "clip_batch_size": 4,
+            "scene_detection_threshold": 27,
+            "max_concurrent_videos": 1,
+            "ffmpeg_preset": "fast",
+            "chunk_duration_seconds": 300,
+        },
+        "quality": {
+            "analysis_resolution": "1280x720",
+            "whisper_model": "medium",
+            "whisper_compute_type": "float16",
+            "yolo_model": "yolov8m",
+            "clip_batch_size": 8,
+            "scene_detection_threshold": 25,
+            "max_concurrent_videos": 2,
+            "ffmpeg_preset": "medium",
+            "chunk_duration_seconds": 420,
+        },
+    },
+    "default": "normal",
+    "chunk_duration_seconds": 300,
+}
+
+
+def load_performance_config(performance_mode: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Загружает конфигурацию производительности (configs/performance.json)
+    и возвращает параметры для выбранного профиля (fast/normal/quality).
+
+    Args:
+        performance_mode: имя профиля ('fast', 'normal', 'quality').
+            Если None — используется профиль по умолчанию из конфига.
+
+    Returns:
+        Словарь параметров производительности для профиля.
+    """
+    data: Dict[str, Any] = {}
+    try:
+        if PERFORMANCE_CONFIG_PATH.exists():
+            with open(PERFORMANCE_CONFIG_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Ошибка загрузки performance.json (%s), использую дефолт", exc)
+        data = {}
+
+    # Сливаем с дефолтами, чтобы гарантировать наличие всех ключей.
+    merged = _deep_merge(_DEFAULT_PERFORMANCE, data)
+
+    profiles = merged.get("profiles", {})
+    default_profile = merged.get("default", "normal")
+
+    mode = performance_mode or default_profile
+    if mode not in profiles:
+        logger.warning("Профиль '%s' не найден, используем '%s'", mode, default_profile)
+        mode = default_profile
+
+    profile = profiles[mode]
+    # Добавляем имя профиля и значения chunk_duration по умолчанию.
+    result = dict(profile)
+    result["mode"] = mode
+    result.setdefault("chunk_duration_seconds", merged.get("chunk_duration_seconds", 300))
+    return result

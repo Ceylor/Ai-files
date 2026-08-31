@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 
 from src.modules.mod8_analysis.schemas import EmotionalFrame
+from src.utils.gpu_detector import gpu
 
 logger = logging.getLogger("analysis.emotion")
 

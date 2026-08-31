@@ -44,7 +44,7 @@ class BatchProcessor:
         output_dir: Path,
         category: str = "default",
         similarity_threshold: float = 0.75,
-        concurrency_limit: int = 2,
+        concurrency_limit: int | None = None,
     ) -> None:
         self.work_dir = Path(work_dir)
         self.output_dir = Path(output_dir)
@@ -53,7 +53,14 @@ class BatchProcessor:
         self.category = category
         self.composer = ClipComposer(similarity_threshold=similarity_threshold)
         self._stop_event = asyncio.Event()
-        self._semaphore = asyncio.Semaphore(concurrency_limit)
+        # По умолчанию 1 (обработка по одному видео за раз) — безопасно для слабых ПК.
+        # Возможно переопределить через env BATCH_CONCURRENCY или performance config.
+        if concurrency_limit is None:
+            try:
+                concurrency_limit = int(__import__("os").getenv("BATCH_CONCURRENCY", "1"))
+            except ValueError:
+                concurrency_limit = 1
+        self._semaphore = asyncio.Semaphore(max(1, concurrency_limit))
         self._settings: dict = {}
 
     # ------------------------------------------------------------------ обработка
@@ -190,12 +197,14 @@ class BatchProcessor:
         чтобы последующие шаги продолжили работу.
         """
         try:
-            from src.modules.mod0_ingest import VideoIngest0, IngestConfig
+            from src.modules.mod0_ingest import VideoIngest0, IngestConfig, build_ingest_config
             from src.core.config_loader import load_config
 
             config = load_config()
-            ingest_cfg = IngestConfig(
-                fast_mode=self._settings.get("fast_mode", False),
+            performance = self._settings.get("performance", {})
+            ingest_cfg = build_ingest_config(
+                config,
+                performance=performance,
             )
             ingest = VideoIngest0(self.work_dir, ingest_cfg)
             result = await ingest.process_video(video_path)
@@ -231,7 +240,14 @@ class BatchProcessor:
         try:
             from src.modules.mod8_analysis.analyzer import MultiLayerAnalyzer
 
-            analyzer = MultiLayerAnalyzer()
+            performance = self._settings.get("performance", {})
+            kwargs: Dict[str, Any] = {}
+            if performance.get("chunk_duration_seconds"):
+                kwargs["chunk_duration_sec"] = int(performance["chunk_duration_seconds"])
+            if performance.get("clip_batch_size"):
+                kwargs["clip_batch_size"] = int(performance["clip_batch_size"])
+
+            analyzer = MultiLayerAnalyzer(**kwargs)
             result = await analyzer.analyze(video_path, video_id=video_id)
             return result.model_dump()
         except Exception as exc:  # noqa: BLE001
