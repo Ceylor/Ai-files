@@ -43,7 +43,7 @@ if not exist "logs" mkdir logs
 REM Run migrations then backend, both in this same window.
 call venv\Scripts\activate.bat
 call alembic upgrade head > logs\migrations.log 2>&1
-start "AI-AutoClip-Backend" /b cmd /c "call venv\Scripts\activate.bat && python -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000 --limit-max-request-size 104857600 > logs\backend.log 2>&1"
+start "AI-AutoClip-Backend" /b cmd /c "call venv\Scripts\activate.bat && python -m uvicorn src.api.main:app --host 127.0.0.1 --port 8000 > logs\backend.log 2>&1"
 
 echo [2/2] Starting frontend (Next.js) in background...
 echo       Logs: logs\frontend.log
